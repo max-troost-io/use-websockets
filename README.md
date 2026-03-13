@@ -4,12 +4,6 @@ A robust WebSocket connection management package for React applications with aut
 
 ## 📚 Navigation
 
-### External Links
-
-- **[Mono-Fleet Root](../../README.md)** — Return to workspace overview
-- **[Penny Application](../../apps/penny/README.MD)** — Penny application (primary consumer)
-- **[GIDS Application](../../apps/gids/README.md)** — GIDS application
-
 ### Internal Sections
 
 - [Features & Purpose](#-features--purpose)

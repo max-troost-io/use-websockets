@@ -697,7 +697,3 @@ These functions are used internally by the hooks and are not exported from the p
 - `uuid`: Correlation ID generation
 - `fast-equals`: Deep equality comparison
 - `usehooks-ts`: React hooks utilities (useIsomorphicLayoutEffect)
-
-## License
-
-Part of the mono-fleet monorepo.
