@@ -1,0 +1,81 @@
+{
+  "name": "@max-troost-io/use-websocket",
+  "version": "1.0.0",
+  "description": "A robust WebSocket connection management package for React applications with automatic reconnection, heartbeat monitoring, URI-based message routing, and React integration via TanStack Store.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/max-troost-io/mt-use-websockets.git"
+  },
+  "bugs": {
+    "url": "https://github.com/max-troost-io/mt-use-websockets/issues"
+  },
+  "homepage": "https://github.com/max-troost-io/mt-use-websockets#readme",
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "prepublishOnly": "pnpm run build"
+  },
+  "keywords": [
+    "websocket",
+    "react",
+    "hooks",
+    "tanstack",
+    "store",
+    "realtime",
+    "subscription"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@tanstack/react-store": "^0.9.2",
+    "@tanstack/store": "^0.9.2",
+    "fast-equals": "^5.0.0",
+    "notistack": "^3.0.0",
+    "uuid": "^9.0.0",
+    "usehooks-ts": "3.1.1"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@testing-library/jest-dom": "^6.6.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@types/uuid": "^9.0.0",
+    "jsdom": "^25.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "typescript": "5.6.3",
+    "vite": "8.0.0",
+    "vite-plugin-dts": "4.5.4",
+    "vitest": "4.1.0"
+  },
+  "engines": {
+    "node": ">=18",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

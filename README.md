@@ -1,6 +1,12 @@
-# @mt-use-websocket
+# @max-troost-io/use-websocket
 
 A robust WebSocket connection management package for React applications with automatic reconnection, heartbeat monitoring, URI-based message routing, and React integration via TanStack Store.
+
+## Installation
+
+```bash
+npm install @max-troost-io/use-websocket
+```
 
 ## 📚 Navigation
 
@@ -204,7 +210,7 @@ User notifications are shown after 10 failed attempts. Reconnection stops after 
 ### Subscription (Streaming Data)
 
 ```typescript
-import { useWebsocketSubscription } from "@mt-use-websocket";
+import { useWebsocketSubscription } from "@max-troost-io/use-websocket";
 import { useStore } from "@tanstack/react-store";
 
 function VoyageList() {
@@ -226,7 +232,7 @@ function VoyageList() {
 ### Access Store by Key (Child Components)
 
 ```typescript
-import { useWebsocketSubscriptionByKey } from "@mt-use-websocket";
+import { useWebsocketSubscriptionByKey } from "@max-troost-io/use-websocket";
 import { useStore } from "@tanstack/react-store";
 
 function VoyageCount() {
@@ -239,7 +245,7 @@ function VoyageCount() {
 ### Message API (Request/Response)
 
 ```typescript
-import { useWebsocketMessage } from "@mt-use-websocket";
+import { useWebsocketMessage } from "@max-troost-io/use-websocket";
 
 function VoyageActions() {
   const api = useWebsocketMessage<ModifyVoyageUim, ModifyVoyageUim>({

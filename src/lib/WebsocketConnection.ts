@@ -255,7 +255,7 @@ export class WebsocketConnection {
           this._socket?.close();
         }
       },
-      import.meta.env.MODE !== 'test' ? CONNECTION_CLEANUP_DELAY.PRODUCTION_MS : CONNECTION_CLEANUP_DELAY.TEST_MS
+      import.meta.env?.MODE !== 'test' ? CONNECTION_CLEANUP_DELAY.PRODUCTION_MS : CONNECTION_CLEANUP_DELAY.TEST_MS
     );
   };
 
@@ -313,7 +313,7 @@ export class WebsocketConnection {
    * Sets up all event listeners and logs the connection attempt via the custom logger if configured.
    */
   private connect = () => {
-    const hasEnabledListener = this._listeners.values().some((listener) => listener.isEnabled);
+    const hasEnabledListener = Array.from(this._listeners.values()).some((listener) => listener.isEnabled);
     if (isConnectionReady(this._socket) || !hasEnabledListener) {
       return;
     }
