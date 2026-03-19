@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { WebsocketClient } from './WebsocketClient';
 import { WebsocketMessageApi } from './WebsocketMessageApi';
 import { SendToConnectionFn, WebsocketMessageOptions } from './types';
 import { DEFAULT_MESSAGE_RESPONSE_TIMEOUT_MS, INITIATOR_REMOVAL_DELAY_MS } from './constants';
 
-const createMockClient = (overrides?: { messageResponseTimeoutMs?: number }) => ({
-  messageResponseTimeoutMs: overrides?.messageResponseTimeoutMs ?? DEFAULT_MESSAGE_RESPONSE_TIMEOUT_MS
-});
+const createMockClient = (overrides?: { messageResponseTimeoutMs?: number }) =>
+  new WebsocketClient(overrides ?? {});
 
 describe('WebsocketMessageApi', () => {
   const mockUrl = 'wss://test.example.com';
