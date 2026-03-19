@@ -1,10 +1,11 @@
-import { Store } from '@tanstack/store';
-import { deepEqual } from 'fast-equals';
-import { useEffect, useId, useRef, useState } from 'react';
-import { useIsomorphicLayoutEffect } from 'usehooks-ts';
-import { WebsocketMessageApi } from './WebsocketMessageApi';
-import { useWebsocketClient } from './WebsocketProvider';
-import { WebsocketSubscriptionApi } from './WebsocketSubscriptionApi';
+import { useStore } from "@tanstack/react-store";
+import { Store } from "@tanstack/store";
+import { deepEqual } from "fast-equals";
+import { useEffect, useId, useRef, useState } from "react";
+import { useIsomorphicLayoutEffect } from "usehooks-ts";
+import { WebsocketMessageApi } from "./WebsocketMessageApi";
+import { useWebsocketClient } from "./WebsocketProvider";
+import { WebsocketSubscriptionApi } from "./WebsocketSubscriptionApi";
 import {
   createInitialWebsocketSubscriptionStore,
   WebsocketListener,
@@ -12,13 +13,13 @@ import {
   WebsocketMessageOptions,
   WebsocketSubscriptionApiPublic,
   WebsocketSubscriptionOptions,
-  WebsocketSubscriptionStore
-} from './types';
+  WebsocketSubscriptionStore,
+} from "./types";
 import {
   createWebsocketMessageApi,
   createWebsocketSubscriptionApi,
-  removeWebsocketListenerFromConnection
-} from './websocketClient.helpers';
+  removeWebsocketListenerFromConnection,
+} from "./websocketClient.helpers";
 
 /**
  * WebSocket React hooks for the shared connection architecture.
@@ -103,7 +104,11 @@ interface HookableListener extends WebsocketListener {
  *
  * @internal
  */
-function useWebsocketLifecycle(listener: HookableListener, url: string, enabled: boolean | undefined): void {
+function useWebsocketLifecycle(
+  listener: HookableListener,
+  url: string,
+  enabled: boolean | undefined
+): void {
   const id = useId();
   const client = useWebsocketClient();
 
@@ -112,7 +117,9 @@ function useWebsocketLifecycle(listener: HookableListener, url: string, enabled:
       const connection = client.addConnection(listener.url, url);
       connection.addListener(listener);
     } else {
-      listener.disconnect(() => removeWebsocketListenerFromConnection(client, listener));
+      listener.disconnect(() =>
+        removeWebsocketListenerFromConnection(client, listener)
+      );
     }
   }, [enabled, listener, client]);
 
@@ -127,7 +134,9 @@ function useWebsocketLifecycle(listener: HookableListener, url: string, enabled:
       listener.registerHook(id);
     }
     return () => {
-      listener.unregisterHook(initiatorId, () => removeWebsocketListenerFromConnection(client, listener));
+      listener.unregisterHook(initiatorId, () =>
+        removeWebsocketListenerFromConnection(client, listener)
+      );
     };
   }, [client, enabled, id, listener]);
 }
@@ -238,8 +247,8 @@ export function useWebsocketSubscription<TData = unknown, TBody = unknown>(
   options: WebsocketSubscriptionOptions<TData, TBody>
 ): WebsocketSubscriptionApiPublic<TData, TBody> {
   const client = useWebsocketClient();
-  const [subscriptionApi] = useState<WebsocketSubscriptionApi<TData, TBody>>(() =>
-    createWebsocketSubscriptionApi(client, options.key, options)
+  const [subscriptionApi] = useState<WebsocketSubscriptionApi<TData, TBody>>(
+    () => createWebsocketSubscriptionApi(client, options.key, options)
   );
 
   useWebsocketLifecycle(subscriptionApi, options.url, options.enabled);
@@ -282,10 +291,13 @@ export function useWebsocketSubscription<TData = unknown, TBody = unknown>(
  */
 export const useWebsocketSubscriptionByKey = <TData = unknown>(key: string) => {
   const client = useWebsocketClient();
-  const subscription = client.getListener<TData, any>(key, 'subscription');
+  const subscription = client.getListener<TData, any>(key, "subscription");
 
   const [fallbackStore] = useState<Store<WebsocketSubscriptionStore<TData>>>(
-    () => new Store<WebsocketSubscriptionStore<TData>>(createInitialWebsocketSubscriptionStore<TData>())
+    () =>
+      new Store<WebsocketSubscriptionStore<TData>>(
+        createInitialWebsocketSubscriptionStore<TData>()
+      )
   );
   return subscription?.store ?? fallbackStore;
 };
@@ -339,11 +351,28 @@ export const useWebsocketSubscriptionByKey = <TData = unknown>(key: string) => {
  *
  * @see {@link WebsocketMessageApiPublic} - Public API surface
  */
-export const useWebsocketMessage = (options: WebsocketMessageOptions): WebsocketMessageApiPublic => {
+export const useWebsocketMessage = (
+  options: WebsocketMessageOptions
+): WebsocketMessageApiPublic => {
   const client = useWebsocketClient();
-  const [messageApi] = useState<WebsocketMessageApi>(() => createWebsocketMessageApi(client, options.key, options));
+  const [messageApi] = useState<WebsocketMessageApi>(() =>
+    createWebsocketMessageApi(client, options.key, options)
+  );
 
   useWebsocketLifecycle(messageApi, options.url, options.enabled);
 
   return messageApi;
 };
+
+/**
+ * Selects a value from a WebSocket subscription store. The store type is inferred
+ * and bound to {@link WebsocketSubscriptionStore}, so the selector receives
+ * properly typed state (including `message: TData`) without explicit generics.
+ */
+export const useSelector = <
+  TStore extends WebsocketSubscriptionStore<unknown>,
+  TResult = unknown
+>(
+  store: Store<TStore>,
+  selector: (state: TStore) => TResult
+) => useStore(store, selector);
