@@ -2,6 +2,17 @@
 
 All routes start at React hooks defined in `WebsocketHook.ts`. This chart shows happy flows and error paths.
 
+## 📚 Navigation
+
+### External Links
+
+- **[Package README](../../README.md)** — Package overview and quick start
+- **[CONNECTION CHARTS](./WEBSOCKET_CONNECTION.md)** — Return to workspace overview
+
+---
+
+## Full Chart
+
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': { 'background': '#666', 'primaryTextColor': '#1a1a1a', 'primaryColor': '#e0e0e0', 'lineColor': '#fff', 'secondaryColor': '#d5d5d5', 'tertiaryColor': '#ebebeb', 'clusterBkg': '#666', 'clusterBorder': '#888', 'clusterText': '#fff', 'titleColor': '#fff' }}}%%
 flowchart TB

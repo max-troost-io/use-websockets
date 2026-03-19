@@ -7,7 +7,7 @@ A robust WebSocket connection manager with automatic reconnection, heartbeat mon
 ### External Links
 
 - **[Package README](../../README.md)** — Package overview and quick start
-- **[Mono-Fleet Root](../../../../README.md)** — Return to workspace overview
+- **[CHART](./CHART.md)** — Return to workspace overview
 
 ### Internal Sections
 
@@ -748,7 +748,6 @@ These functions are used internally by the hooks and are not exported from the p
 - `@tanstack/react-store`: Reactive state management
 - `@tanstack/store`: Core store implementation
 - `fast-equals`: Deep equality comparison
-- `usehooks-ts`: React hooks utilities (useIsomorphicLayoutEffect)
 
 ## License
 
