@@ -29,10 +29,13 @@
  * @module WebsocketConnection
  */
 
-import { wait } from '@mono-fleet/common-utils';
-import { TEARDOWN_RECONNECT_DELAY_MS, WEBSOCKET_CLOSE_CODES } from './constants';
-import { SendMessage, WebsocketListener } from './types';
-import { WebsocketClient } from './WebsocketClient';
+import { wait } from "./utils";
+import {
+  TEARDOWN_RECONNECT_DELAY_MS,
+  WEBSOCKET_CLOSE_CODES,
+} from "./constants";
+import { SendMessage, WebsocketListener } from "./types";
+import { WebsocketClient } from "./WebsocketClient";
 import {
   createPingMessage,
   getPingTime,
@@ -43,8 +46,8 @@ import {
   isReconnectableCloseCode,
   isSocketOnline,
   isValidIncomingMessage,
-  reconnectWaitTime
-} from './WebsocketConnection.helpers';
+  reconnectWaitTime,
+} from "./WebsocketConnection.helpers";
 
 /**
  * Manages a WebSocket connection with automatic reconnection, heartbeat monitoring, and URI-based message routing.
@@ -265,21 +268,23 @@ export class WebsocketConnection {
    * Sets up all event listeners and logs the connection attempt via the custom logger if configured.
    */
   private connect = () => {
-    const hasEnabledListener = this._listeners.values().some((listener) => listener.isEnabled);
+    const hasEnabledListener = Array.from(this._listeners.values()).some(
+      (listener) => listener.isEnabled
+    );
     if (isConnectionReady(this._socket) || !hasEnabledListener) {
       return;
     }
     this._client.connectionEvent?.({
-      type: 'connect',
+      type: "connect",
       url: this._url,
       retries: this.reconnectTries,
-      uriApis: getSubscriptionUris(this._listeners)
+      uriApis: getSubscriptionUris(this._listeners),
     });
     this._socket = new WebSocket(this._url);
-    this._socket.addEventListener('close', this.handleClose);
-    this._socket.addEventListener('message', this.handleMessage);
-    this._socket.addEventListener('open', this.handleOpen);
-    this._socket.addEventListener('error', this.handleError);
+    this._socket.addEventListener("close", this.handleClose);
+    this._socket.addEventListener("message", this.handleMessage);
+    this._socket.addEventListener("open", this.handleOpen);
+    this._socket.addEventListener("error", this.handleError);
   };
 
   /**
@@ -324,8 +329,8 @@ export class WebsocketConnection {
   private cleanupConnection = () => {
     if (this._listeners.size === 0) {
       this._client.connectionEvent?.({
-        type: 'cleanup',
-        url: this._url
+        type: "cleanup",
+        url: this._url,
       });
       this.removeListeners();
       this._socket = undefined;
@@ -346,15 +351,15 @@ export class WebsocketConnection {
    * Used during cleanup and reconnection processes.
    */
   private removeListeners = () => {
-    this._socket?.removeEventListener('message', this.handleMessage);
-    this._socket?.removeEventListener('close', this.handleClose);
-    this._socket?.removeEventListener('open', this.handleOpen);
-    this._socket?.removeEventListener('error', this.handleError);
+    this._socket?.removeEventListener("message", this.handleMessage);
+    this._socket?.removeEventListener("close", this.handleClose);
+    this._socket?.removeEventListener("open", this.handleOpen);
+    this._socket?.removeEventListener("error", this.handleError);
 
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('online', this.handleOnline);
-      window.removeEventListener('online', this.handleOnlineForReconnection);
-      window.removeEventListener('offline', this.handleOffline);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("online", this.handleOnline);
+      window.removeEventListener("online", this.handleOnlineForReconnection);
+      window.removeEventListener("offline", this.handleOffline);
     }
   };
 
@@ -370,13 +375,14 @@ export class WebsocketConnection {
    * @param closeCode - Optional WebSocket close code; used to apply TRY_AGAIN_LATER delay when 1013
    */
   private attemptReconnection = async (closeCode?: number) => {
-    const { maxRetryAttempts, notificationThreshold, tryAgainLaterDelayMs } = this._client;
+    const { maxRetryAttempts, notificationThreshold, tryAgainLaterDelayMs } =
+      this._client;
     if (this.reconnectTries >= maxRetryAttempts) {
       this._maxRetriesExceeded = true;
       this._client.connectionEvent?.({
-        type: 'max-retries-exceeded',
+        type: "max-retries-exceeded",
         url: this._url,
-        retries: this.reconnectTries
+        retries: this.reconnectTries,
       });
       return;
     }
@@ -387,7 +393,11 @@ export class WebsocketConnection {
 
     if (closeCode === WEBSOCKET_CLOSE_CODES.TRY_AGAIN_LATER) {
       if (this.reconnectTries > notificationThreshold) {
-        this._client.connectionEvent?.({ type: 'reconnecting', url: this._url, retries: this.reconnectTries });
+        this._client.connectionEvent?.({
+          type: "reconnecting",
+          url: this._url,
+          retries: this.reconnectTries,
+        });
       }
 
       await wait(tryAgainLaterDelayMs);
@@ -398,10 +408,18 @@ export class WebsocketConnection {
 
     this.reconnectTries++;
 
-    const waitTime = reconnectWaitTime(this.reconnectTries);
+    const waitTime = reconnectWaitTime(
+      this.reconnectTries,
+      this._client.delays,
+      this._client.phaseThresholds
+    );
 
     if (this.reconnectTries > notificationThreshold) {
-      this._client.connectionEvent?.({ type: 'reconnecting', url: this._url, retries: this.reconnectTries });
+      this._client.connectionEvent?.({
+        type: "reconnecting",
+        url: this._url,
+        retries: this.reconnectTries,
+      });
     }
     await wait(waitTime);
 
@@ -411,7 +429,11 @@ export class WebsocketConnection {
     }
 
     if (this.reconnectTries > notificationThreshold) {
-      this._client.connectionEvent?.({ type: 'reconnecting', url: this._url, retries: this.reconnectTries });
+      this._client.connectionEvent?.({
+        type: "reconnecting",
+        url: this._url,
+        retries: this.reconnectTries,
+      });
     }
     this.connect();
   };
@@ -426,8 +448,10 @@ export class WebsocketConnection {
     if (isBrowserOnline()) {
       return false;
     }
-    if (typeof window !== 'undefined') {
-      window.addEventListener('online', this.handleOnlineForReconnection, { once: true });
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", this.handleOnlineForReconnection, {
+        once: true,
+      });
     }
     return true;
   };
@@ -450,12 +474,12 @@ export class WebsocketConnection {
     this.clearAllTimers();
 
     this._client.connectionEvent?.({
-      type: 'close',
+      type: "close",
       url: this._url,
       code: event.code,
       reason: event.reason,
       wasClean: event.wasClean,
-      subscriptions: this._listeners.size
+      subscriptions: this._listeners.size,
     });
 
     const shouldReconnect = isReconnectableCloseCode(event.code);
@@ -477,8 +501,8 @@ export class WebsocketConnection {
    * messages, and initiates the heartbeat ping sequence.
    */
   private handleOpen = () => {
-    if (typeof window !== 'undefined') {
-      window.addEventListener('offline', this.handleOffline);
+    if (typeof window !== "undefined") {
+      window.addEventListener("offline", this.handleOffline);
     }
 
     this.reconnectTries = 0;
@@ -488,12 +512,14 @@ export class WebsocketConnection {
       this._listeners.forEach((listener) => listener.onOpen?.());
 
       this._client.connectionEvent?.({
-        type: 'open',
+        type: "open",
         url: this._url,
         retries: this.reconnectTries,
-        uriApis: getSubscriptionUris(this._listeners)
+        uriApis: getSubscriptionUris(this._listeners),
       });
-      this.cachedMessages.forEach((message) => socket.send(this.serializeMessage(message)));
+      this.cachedMessages.forEach((message) =>
+        socket.send(this.serializeMessage(message))
+      );
     }
     this.cachedMessages = [];
     if (this._client.heartbeat.enabled) {
@@ -516,16 +542,18 @@ export class WebsocketConnection {
 
       if (!isValidIncomingMessage(parsed)) {
         this._client.connectionEvent?.({
-          type: 'invalid-message',
+          type: "invalid-message",
           url: this._url,
           uriApis: getSubscriptionUris(this._listeners),
-          message: parsed
+          message: parsed,
         });
-        this._listeners.forEach((listener) => listener.onError({ type: 'transport', event }));
+        this._listeners.forEach((listener) =>
+          listener.onError({ type: "transport", event })
+        );
         return;
       }
 
-      if (parsed.uri === 'ping') {
+      if (parsed.uri === "ping") {
         this.clearPongTimeout();
         if (this._client.heartbeat.enabled) {
           this.schedulePing();
@@ -535,13 +563,15 @@ export class WebsocketConnection {
 
       if (isErrorMethod(parsed.method)) {
         this._client.connectionEvent?.({
-          type: 'message-error',
+          type: "message-error",
           url: this._url,
           uri: parsed.uri,
           uriApis: getSubscriptionUris(this._listeners),
-          message: parsed
+          message: parsed,
         });
-        this.forEachMatchingListener(parsed.uri, (listener) => listener.onMessageError!({ type: 'server', message: parsed }));
+        this.forEachMatchingListener(parsed.uri, (listener) =>
+          listener.onMessageError!({ type: "server", message: parsed })
+        );
         return;
       }
 
@@ -554,13 +584,15 @@ export class WebsocketConnection {
       });
     } catch (error) {
       this._client.connectionEvent?.({
-        type: 'parse-error',
+        type: "parse-error",
         url: this._url,
         uriApis: getSubscriptionUris(this._listeners),
         message: event.data,
-        error: error
+        error: error,
       });
-      this._listeners.forEach((listener) => listener.onError({ type: 'transport', event }));
+      this._listeners.forEach((listener) =>
+        listener.onError({ type: "transport", event })
+      );
     }
   };
 
@@ -571,13 +603,15 @@ export class WebsocketConnection {
    * @param event - The WebSocket error event
    */
   private handleError = (event: Event) => {
-    this._listeners.forEach((listener) => listener.onError({ type: 'transport', event }));
+    this._listeners.forEach((listener) =>
+      listener.onError({ type: "transport", event })
+    );
 
     this._client.connectionEvent?.({
-      type: 'error',
+      type: "error",
       url: this._url,
       uriApis: getSubscriptionUris(this._listeners),
-      event: event
+      event: event,
     });
   };
 
@@ -588,8 +622,8 @@ export class WebsocketConnection {
    * Removes the online listener and re-establishes the connection.
    */
   private handleOnline = () => {
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('online', this.handleOnline);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("online", this.handleOnline);
     }
     this.connect();
   };
@@ -600,8 +634,8 @@ export class WebsocketConnection {
    * to avoid adding extra wait time from being offline.
    */
   private handleOnlineForReconnection = () => {
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('online', this.handleOnlineForReconnection);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("online", this.handleOnlineForReconnection);
     }
     this.reconnectTries--;
     this.attemptReconnection();
@@ -614,15 +648,17 @@ export class WebsocketConnection {
    * a listener to reconnect when the browser comes back online.
    */
   private handleOffline = () => {
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('offline', this.handleOffline);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("offline", this.handleOffline);
     }
     if (this._socket) {
-      this._listeners.forEach((listener) => listener.onClose(new CloseEvent('offline')));
+      this._listeners.forEach((listener) =>
+        listener.onClose(new CloseEvent("offline"))
+      );
     }
     this.teardownSocket();
-    if (typeof window !== 'undefined') {
-      window.addEventListener('online', this.handleOnline);
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", this.handleOnline);
     }
   };
 
@@ -640,17 +676,17 @@ export class WebsocketConnection {
   private handleSendMessage = (message: SendMessage<string, string, any>) => {
     if (this._socket?.readyState === WebSocket.OPEN) {
       this._client.connectionEvent?.({
-        type: 'send-message',
+        type: "send-message",
         url: this._url,
         uri: message.uri,
         body: message.body,
-        method: message.method
+        method: message.method,
       });
       this._socket.send(this.serializeMessage(message));
       return;
     }
 
-    if (message.method !== 'subscribe') {
+    if (message.method !== "subscribe") {
       this.cachedMessages.push(message);
     }
     this.connect();
@@ -684,8 +720,8 @@ export class WebsocketConnection {
     const pongTimeoutMs = this._client.heartbeat.pongTimeoutMs;
     this.pongTimeOut = setTimeout(() => {
       this._client.connectionEvent?.({
-        type: 'pong-timeout',
-        url: this._url
+        type: "pong-timeout",
+        url: this._url,
       });
       this.teardownSocket();
       this.attemptReconnection();
@@ -707,7 +743,9 @@ export class WebsocketConnection {
    * @param message - The message to serialize
    * @returns JSON string for WebSocket send
    */
-  private serializeMessage = (message: SendMessage<string, string, any>): string => {
+  private serializeMessage = (
+    message: SendMessage<string, string, any>
+  ): string => {
     const transformMessagePayload = this._client.transformMessagePayload;
     if (transformMessagePayload) {
       message = transformMessagePayload(message);
@@ -727,7 +765,10 @@ export class WebsocketConnection {
    * @param uri - The URI from the incoming message
    * @param callback - Callback invoked for each matching listener
    */
-  private forEachMatchingListener = (uri: string, callback: (listener: WebsocketListener) => void) => {
+  private forEachMatchingListener = (
+    uri: string,
+    callback: (listener: WebsocketListener) => void
+  ) => {
     this._listeners.forEach((listener) => {
       if (listener.uri === uri || listener.hasWaitingUri?.(uri)) {
         callback(listener);

@@ -8,8 +8,14 @@
  * @module WebsocketConnection.helpers
  */
 
-import { RECONNECTION_CONFIG, WEBSOCKET_CLOSE_CODES } from './constants';
-import { IncomingWebsocketMessage, ReconnectionConfig, SendMessage, WebsocketListener } from './types';
+import { RECONNECTION_CONFIG, WEBSOCKET_CLOSE_CODES } from "./constants";
+import {
+  IncomingWebsocketMessage,
+  ReconnectionConfig,
+  SendMessage,
+  WebsocketClientOverrides,
+  WebsocketListener,
+} from "./types";
 
 /**
  * Extracts URIs from subscription listeners for connection event logging.
@@ -18,9 +24,11 @@ import { IncomingWebsocketMessage, ReconnectionConfig, SendMessage, WebsocketLis
  * @returns Array of URIs from subscription listeners (message APIs are excluded)
  * @internal
  */
-export const getSubscriptionUris = (listeners: Map<string, WebsocketListener>): string[] =>
+export const getSubscriptionUris = (
+  listeners: Map<string, WebsocketListener>
+): string[] =>
   Array.from(listeners)
-    .filter(([, listener]) => 'uri' in listener)
+    .filter(([, listener]) => "uri" in listener)
     .map(([, listener]) => (listener as { uri: string }).uri);
 
 /**
@@ -38,14 +46,20 @@ export const getSubscriptionUris = (listeners: Map<string, WebsocketListener>): 
  * @see {@link RECONNECTION_CONFIG} - Phase thresholds and delay values
  * @internal
  */
-export const reconnectWaitTime = (tries: number, reconnectionConfig: ReconnectionConfig = RECONNECTION_CONFIG) => {
-  if (tries < reconnectionConfig.PHASE_THRESHOLDS.FIRST) {
-    return reconnectionConfig.DELAYS.FIRST_PHASE;
+export const reconnectWaitTime = (
+  tries: number,
+  delays: NonNullable<Required<WebsocketClientOverrides["delays"]>>,
+  phaseThresholds: NonNullable<
+    Required<WebsocketClientOverrides["phaseThresholds"]>
+  >
+) => {
+  if (tries < phaseThresholds.first) {
+    return delays.firstPhase;
   }
-  if (tries < reconnectionConfig.PHASE_THRESHOLDS.SECOND) {
-    return reconnectionConfig.DELAYS.SECOND_PHASE;
+  if (tries < phaseThresholds.second) {
+    return delays.secondPhase;
   }
-  return reconnectionConfig.DELAYS.THIRD_PHASE;
+  return delays.thirdPhase;
 };
 
 /**
@@ -73,8 +87,15 @@ export const getPingTime = (): number => 40 * 1000;
  *
  * @internal
  */
-export const isValidIncomingMessage = (value: unknown): value is IncomingWebsocketMessage => {
-  return typeof value === 'object' && value !== null && 'uri' in value && typeof (value as Record<string, unknown>).uri === 'string';
+export const isValidIncomingMessage = (
+  value: unknown
+): value is IncomingWebsocketMessage => {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "uri" in value &&
+    typeof (value as Record<string, unknown>).uri === "string"
+  );
 };
 
 /**
@@ -90,7 +111,7 @@ export const isValidIncomingMessage = (value: unknown): value is IncomingWebsock
  */
 export const isErrorMethod = (method?: string): boolean => {
   if (!method) return false;
-  const errorMethods = ['error', 'conflict', 'exception'];
+  const errorMethods = ["error", "conflict", "exception"];
   return errorMethods.includes(method);
 };
 
@@ -105,7 +126,7 @@ export const isErrorMethod = (method?: string): boolean => {
  * @internal
  */
 export const isBrowserOnline = (): boolean => {
-  return typeof window !== 'undefined' && window.navigator.onLine;
+  return typeof window !== "undefined" && window.navigator.onLine;
 };
 
 /**
@@ -121,7 +142,12 @@ export const isBrowserOnline = (): boolean => {
  * @internal
  */
 export const isSocketOnline = (socket?: WebSocket): boolean => {
-  return typeof window !== 'undefined' && window.navigator.onLine && socket !== undefined && socket.readyState === WebSocket.OPEN;
+  return (
+    typeof window !== "undefined" &&
+    window.navigator.onLine &&
+    socket !== undefined &&
+    socket.readyState === WebSocket.OPEN
+  );
 };
 
 /**
@@ -136,10 +162,10 @@ export const isSocketOnline = (socket?: WebSocket): boolean => {
  */
 export const createPingMessage = (): SendMessage<string, string, number> => {
   return {
-    method: 'post',
-    uri: 'ping',
-    body: Date.now()
-  }
+    method: "post",
+    uri: "ping",
+    body: Date.now(),
+  };
 };
 
 /**
@@ -156,7 +182,10 @@ export const createPingMessage = (): SendMessage<string, string, number> => {
  * @internal
  */
 export const isConnectionReady = (socket?: WebSocket): boolean => {
-  return socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING;
+  return (
+    socket?.readyState === WebSocket.OPEN ||
+    socket?.readyState === WebSocket.CONNECTING
+  );
 };
 
 /**

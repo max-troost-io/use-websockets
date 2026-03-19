@@ -1,23 +1,46 @@
-import { describe, it, expect, vi } from 'vitest';
+import { Component, type ReactNode } from 'react';
+import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { WebsocketClient } from './WebsocketClient';
 import { WebsocketClientProvider, useWebsocketClient } from './WebsocketProvider';
+
+class ErrorBoundary extends Component<
+  { children: ReactNode; fallback: (error: Error) => ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) return this.props.fallback(this.state.error);
+    return this.props.children;
+  }
+}
 
 describe('WebsocketProvider', () => {
   const mockClient = new WebsocketClient({});
 
   describe('useWebsocketClient', () => {
     it('should throw when used outside WebsocketClientProvider', () => {
-      const ConsoleSpy = () => {
+      const Thrower = () => {
         useWebsocketClient();
         return null;
       };
-
-      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-      expect(() => render(<ConsoleSpy />)).toThrow(
-        'useWebsocketClient must be used within a WebsocketClientProvider'
-      );
-      consoleError.mockRestore();
+      let caughtError: Error | null = null;
+      const handleError = (event: ErrorEvent) => event.preventDefault();
+      window.addEventListener('error', handleError);
+      try {
+        render(
+          <ErrorBoundary fallback={(e) => ((caughtError = e), null)}>
+            <Thrower />
+          </ErrorBoundary>
+        );
+      } finally {
+        window.removeEventListener('error', handleError);
+      }
+      expect(caughtError).not.toBeNull();
+      expect(caughtError!.message).toBe('useWebsocketClient must be used within a WebsocketClientProvider');
     });
 
     it('should return client when used inside WebsocketClientProvider', () => {
