@@ -365,9 +365,46 @@ export const useWebsocketMessage = (
 };
 
 /**
- * Selects a value from a WebSocket subscription store. The store type is inferred
- * and bound to {@link WebsocketSubscriptionStore}, so the selector receives
- * properly typed state (including `message: TData`) without explicit generics.
+ * Selects a value from a WebSocket subscription store with reactive updates.
+ *
+ * A thin wrapper around {@link https://tanstack.com/store/latest/docs/framework/react/useStore | useStore}
+ * from TanStack Store. The store type is inferred from the first argument, so the selector
+ * receives properly typed state (including `message: TData`) without explicit generics.
+ *
+ * Use this to subscribe to specific slices of subscription state and avoid re-renders when
+ * unrelated fields change. The selector runs on every store update; return a primitive or
+ * memoized value for optimal performance.
+ *
+ * @template TStore - The store state type (extends {@link WebsocketSubscriptionStore})
+ * @template TResult - The type of the selected value
+ * @param store - The TanStack Store from {@link WebsocketSubscriptionApi.store} or {@link useWebsocketSubscriptionByKey}
+ * @param selector - Function that maps store state to the desired value. Receives typed state with `message`, `subscribed`, `pendingSubscription`, `connected`, etc.
+ * @returns The selected value; triggers re-renders when the selected value changes (shallow comparison)
+ *
+ * @example
+ * ```tsx
+ * const voyageApi = useWebsocketSubscription<Voyage>({
+ *   key: 'voyages',
+ *   url: 'wss://api.example.com',
+ *   uri: '/api/voyages'
+ * });
+ *
+ * // Select only message — re-renders when message changes, not when connected/subscribed change
+ * const voyage = useSelector(voyageApi.store, (s) => s.message);
+ *
+ * // Select derived state
+ * const isLoading = useSelector(voyageApi.store, (s) => s.pendingSubscription || !s.connected);
+ *
+ * // Select multiple fields (returns new object each time — consider useMemo if used as dependency)
+ * const status = useSelector(voyageApi.store, (s) => ({
+ *   hasData: s.message !== undefined,
+ *   error: s.serverError ?? s.messageError
+ * }));
+ * ```
+ *
+ * @see {@link WebsocketSubscriptionStore} - Store shape and field descriptions
+ * @see {@link useWebsocketSubscription} - Creates a subscription and returns the store
+ * @see {@link useWebsocketSubscriptionByKey} - Access a subscription store by key
  */
 export const useSelector = <
   TStore extends WebsocketSubscriptionStore<unknown>,
