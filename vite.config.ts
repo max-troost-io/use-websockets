@@ -33,7 +33,6 @@ export default defineConfig({
         "@tanstack/store",
         "uuid",
         "fast-equals",
-        "usehooks-ts",
       ],
     },
   },
