@@ -8,7 +8,8 @@
  * @module WebsocketMessageApi
  */
 
-import { DEFAULT_MESSAGE_RESPONSE_TIMEOUT_MS, INITIATOR_REMOVAL_DELAY_MS } from './constants';
+import { WebsocketClient } from './WebsocketClient';
+import { INITIATOR_REMOVAL_DELAY_MS } from './constants';
 import {
   SendMessage,
   SendMessageOptions,
@@ -18,7 +19,6 @@ import {
   WebsocketServerError,
   WebsocketTransportError
 } from './types';
-import { v4 as uuidv4 } from 'uuid';
 
 interface PendingRequest<TData = unknown> {
   resolve: (value: TData) => void;
@@ -76,11 +76,21 @@ export class WebsocketMessageApi implements WebsocketListener {
   private _pendingMessages: SendMessage<string, string, unknown>[] = [];
   private _registeredHooks: Set<string> = new Set();
   private _hookRemovalTimeout: ReturnType<typeof setTimeout> | undefined;
+  private _client: WebsocketClient;
+  public readonly type = 'message';
 
-  constructor(options: WebsocketMessageOptions) {
+  /**
+   * Creates a new WebsocketMessageApi.
+   *
+   * @param options - Configuration options (url, key, callbacks, etc.)
+   * @param client - The {@link WebsocketClient} for timeout defaults and connection management
+   */
+  constructor(options: WebsocketMessageOptions, client: WebsocketClient) {
+    this._client = client;
+    const defaultTimeout = client.messageResponseTimeoutMs;
     this._options = {
       enabled: true,
-      responseTimeoutMs: DEFAULT_MESSAGE_RESPONSE_TIMEOUT_MS,
+      responseTimeoutMs: defaultTimeout,
       ...options
     };
   }
@@ -90,6 +100,7 @@ export class WebsocketMessageApi implements WebsocketListener {
     return this._options.key;
   }
 
+  /** WebSocket URL for Datadog tracking. */
   public get url(): string {
     return this._options.url;
   }
@@ -221,7 +232,7 @@ export class WebsocketMessageApi implements WebsocketListener {
 
     this._cancelPendingForUri(uri);
 
-    const timeoutMs = options?.timeout ?? this._options.responseTimeoutMs ?? DEFAULT_MESSAGE_RESPONSE_TIMEOUT_MS;
+    const timeoutMs = options?.timeout ?? this._options.responseTimeoutMs ?? this._client.messageResponseTimeoutMs;
 
     return new Promise<TData>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
@@ -237,7 +248,7 @@ export class WebsocketMessageApi implements WebsocketListener {
         timeoutId
       });
 
-      const message: SendMessage<string, string, TBody> = { uri, method, body, correlation: uuidv4() };
+      const message: SendMessage<string, string, TBody> = { uri, method, body };
       this._sendOrQueue<TBody>(message);
     });
   }
@@ -255,7 +266,7 @@ export class WebsocketMessageApi implements WebsocketListener {
   public sendMessageNoWait<TBody = unknown>(uri: string, method: string, body?: TBody): void {
     if (!this.isEnabled) return;
 
-    const message: SendMessage<string, string, TBody> = { uri, method, body, correlation: uuidv4() };
+    const message: SendMessage<string, string, TBody> = { uri, method, body };
     this._sendOrQueue<TBody>(message);
   }
 

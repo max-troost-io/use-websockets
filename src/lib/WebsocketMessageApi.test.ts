@@ -3,6 +3,10 @@ import { WebsocketMessageApi } from './WebsocketMessageApi';
 import { SendToConnectionFn, WebsocketMessageOptions } from './types';
 import { DEFAULT_MESSAGE_RESPONSE_TIMEOUT_MS, INITIATOR_REMOVAL_DELAY_MS } from './constants';
 
+const createMockClient = (overrides?: { messageResponseTimeoutMs?: number }) => ({
+  messageResponseTimeoutMs: overrides?.messageResponseTimeoutMs ?? DEFAULT_MESSAGE_RESPONSE_TIMEOUT_MS
+});
+
 describe('WebsocketMessageApi', () => {
   const mockUrl = 'wss://test.example.com';
   const mockKey = 'message-api-key';
@@ -26,7 +30,7 @@ describe('WebsocketMessageApi', () => {
         key: mockKey
       };
 
-      const api = new WebsocketMessageApi(options);
+      const api = new WebsocketMessageApi(options, createMockClient());
 
       expect(api.key).toBe(mockKey);
       expect(api.url).toBe(mockUrl);
@@ -34,20 +38,26 @@ describe('WebsocketMessageApi', () => {
     });
 
     it('should merge provided options with defaults', () => {
-      const api = new WebsocketMessageApi({
-        url: mockUrl,
-        key: mockKey
-      });
+      const api = new WebsocketMessageApi(
+        {
+          url: mockUrl,
+          key: mockKey
+        },
+        createMockClient()
+      );
 
       expect(api.isEnabled).toBe(true);
     });
 
     it('should respect custom responseTimeoutMs', () => {
-      const api = new WebsocketMessageApi({
-        url: mockUrl,
-        key: mockKey,
-        responseTimeoutMs: 5000
-      });
+      const api = new WebsocketMessageApi(
+        {
+          url: mockUrl,
+          key: mockKey,
+          responseTimeoutMs: 5000
+        },
+        createMockClient()
+      );
 
       api.setSendToConnection(mockSendToConnection);
       const promise = api.sendMessage('/api/test', 'post', { foo: 'bar' });
@@ -60,10 +70,7 @@ describe('WebsocketMessageApi', () => {
 
   describe('sendMessage', () => {
     it('should send message with uri and body through connection', async () => {
-      const api = new WebsocketMessageApi({
-        url: mockUrl,
-        key: mockKey
-      });
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
       api.setSendToConnection(mockSendToConnection);
 
       const promise = api.sendMessage<{ result: string }, { action: string }>('/api/command', 'post', { action: 'refresh' });
@@ -81,7 +88,7 @@ describe('WebsocketMessageApi', () => {
     });
 
     it('should support any URI string', async () => {
-      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey });
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
       api.setSendToConnection(mockSendToConnection);
 
       const uri1 = '/api/v1/users/123';
@@ -111,7 +118,7 @@ describe('WebsocketMessageApi', () => {
     });
 
     it('should overwrite and cancel previous request when sending to same URI', async () => {
-      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey });
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
       api.setSendToConnection(mockSendToConnection);
 
       const promise1 = api.sendMessage('/api/test', 'post');
@@ -123,7 +130,7 @@ describe('WebsocketMessageApi', () => {
     });
 
     it('should reject on timeout when no response received', async () => {
-      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey });
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
       api.setSendToConnection(mockSendToConnection);
 
       const promise = api.sendMessage('/api/test', 'post');
@@ -134,11 +141,14 @@ describe('WebsocketMessageApi', () => {
     });
 
     it('should allow per-call timeout override', async () => {
-      const api = new WebsocketMessageApi({
-        url: mockUrl,
-        key: mockKey,
-        responseTimeoutMs: 10000
-      });
+      const api = new WebsocketMessageApi(
+        {
+          url: mockUrl,
+          key: mockKey,
+          responseTimeoutMs: 10000
+        },
+        createMockClient()
+      );
       api.setSendToConnection(mockSendToConnection);
 
       const promise = api.sendMessage('/api/test', 'post', undefined, { timeout: 1000 });
@@ -149,7 +159,7 @@ describe('WebsocketMessageApi', () => {
     });
 
     it('should queue messages when connection not yet set', async () => {
-      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey });
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
 
       const promise = api.sendMessage('/api/test', 'post', { queued: true });
       expect(mockSendToConnection).not.toHaveBeenCalled();
@@ -168,11 +178,14 @@ describe('WebsocketMessageApi', () => {
     });
 
     it('should reject when disabled', async () => {
-      const api = new WebsocketMessageApi({
-        url: mockUrl,
-        key: mockKey,
-        enabled: false
-      });
+      const api = new WebsocketMessageApi(
+        {
+          url: mockUrl,
+          key: mockKey,
+          enabled: false
+        },
+        createMockClient()
+      );
       api.setSendToConnection(mockSendToConnection);
 
       const promise = api.sendMessage('/api/test', 'post');
@@ -184,7 +197,7 @@ describe('WebsocketMessageApi', () => {
 
   describe('sendMessageNoWait', () => {
     it('should send message without waiting for response', () => {
-      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey });
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
       api.setSendToConnection(mockSendToConnection);
 
       api.sendMessageNoWait('/api/fire-and-forget', 'post', { event: 'log' });
@@ -199,11 +212,14 @@ describe('WebsocketMessageApi', () => {
     });
 
     it('should not send when disabled', () => {
-      const api = new WebsocketMessageApi({
-        url: mockUrl,
-        key: mockKey,
-        enabled: false
-      });
+      const api = new WebsocketMessageApi(
+        {
+          url: mockUrl,
+          key: mockKey,
+          enabled: false
+        },
+        createMockClient()
+      );
       api.setSendToConnection(mockSendToConnection);
 
       api.sendMessageNoWait('/api/test', 'post');
@@ -214,7 +230,7 @@ describe('WebsocketMessageApi', () => {
 
   describe('hasWaitingUri', () => {
     it('should return true for URI with pending request', () => {
-      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey });
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
       api.setSendToConnection(mockSendToConnection);
 
       api.sendMessage('/api/waiting', 'post');
@@ -223,7 +239,7 @@ describe('WebsocketMessageApi', () => {
     });
 
     it('should return false after response delivered', () => {
-      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey });
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
       api.setSendToConnection(mockSendToConnection);
 
       api.sendMessage('/api/waiting', 'post');
@@ -234,7 +250,7 @@ describe('WebsocketMessageApi', () => {
 
   describe('reset', () => {
     it('should cancel all pending requests', async () => {
-      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey });
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
       api.setSendToConnection(mockSendToConnection);
 
       const promise = api.sendMessage('/api/test', 'post');
@@ -244,14 +260,39 @@ describe('WebsocketMessageApi', () => {
     });
   });
 
+  describe('onMessageError', () => {
+    it('should call onMessageError callback when provided', () => {
+      const onMessageErrorSpy = vi.fn();
+      const api = new WebsocketMessageApi(
+        {
+          url: mockUrl,
+          key: mockKey,
+          onMessageError: onMessageErrorSpy
+        },
+        createMockClient()
+      );
+
+      const serverError = {
+        type: 'server' as const,
+        message: { uri: '/api/test', method: 'error', body: { code: 'CONFLICT' } }
+      };
+      api.onMessageError(serverError);
+
+      expect(onMessageErrorSpy).toHaveBeenCalledWith(serverError);
+    });
+  });
+
   describe('onClose', () => {
     it('should cancel pending and call onClose callback', async () => {
       const onClose = vi.fn();
-      const api = new WebsocketMessageApi({
-        url: mockUrl,
-        key: mockKey,
-        onClose
-      });
+      const api = new WebsocketMessageApi(
+        {
+          url: mockUrl,
+          key: mockKey,
+          onClose
+        },
+        createMockClient()
+      );
       api.setSendToConnection(mockSendToConnection);
 
       const promise = api.sendMessage('/api/test', 'post');
@@ -264,7 +305,7 @@ describe('WebsocketMessageApi', () => {
 
   describe('registerHook and unregisterHook', () => {
     it('should call onRemove when last hook is removed', () => {
-      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey });
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
       const onRemove = vi.fn();
 
       api.registerHook('hook-1');
@@ -276,7 +317,7 @@ describe('WebsocketMessageApi', () => {
     });
 
     it('should not call onRemove when other hooks remain', () => {
-      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey });
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
       const onRemove = vi.fn();
 
       api.registerHook('hook-1');
@@ -290,7 +331,7 @@ describe('WebsocketMessageApi', () => {
 
   describe('setSendToConnection', () => {
     it('should cancel pending requests when connection is cleared', async () => {
-      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey });
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
       api.setSendToConnection(mockSendToConnection);
 
       const promise = api.sendMessage('/api/test', 'post');
@@ -302,7 +343,7 @@ describe('WebsocketMessageApi', () => {
 
   describe('disconnect', () => {
     it('should call onRemoveFromSocket after delay', () => {
-      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey });
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
       const onRemoveFromSocket = vi.fn();
 
       api.disconnect(onRemoveFromSocket);

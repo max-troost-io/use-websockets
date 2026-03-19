@@ -14,24 +14,22 @@ flowchart TB
     end
 
     subgraph useSubFlow["useWebsocketSubscription Flow"]
-        useCore[useWebsocketCore]
         createSubscriptionApi[createWebsocketSubscriptionApi]
         useLifecycle1[useWebsocketLifecycle]
-        syncOptions[Sync options to SubscriptionApi]
-        useSub --> useCore
-        useCore --> createSubscriptionApi
-        useCore --> useLifecycle1
-        useCore --> syncOptions
-        useCore -->|return| subApi[WebsocketSubscriptionApiPublic]
+        syncOptions[Sync options via layout effect]
+        useSub --> createSubscriptionApi
+        useSub --> useLifecycle1
+        useSub --> syncOptions
+        useSub -->|return| subApi[WebsocketSubscriptionApiPublic]
     end
 
     subgraph useSubByKeyFlow["useWebsocketSubscriptionByKey Flow"]
-        useStore[useStore websocketListeners]
+        getListener[client.getListener key subscription]
         checkKey{Listener exists<br/>for key?}
         returnStore[Return subscription.store]
         fallbackStore[Return fallbackStore]
-        useSubByKey --> useStore
-        useStore --> checkKey
+        useSubByKey --> getListener
+        getListener --> checkKey
         checkKey -->|yes| returnStore
         checkKey -->|no| fallbackStore
     end
@@ -45,35 +43,32 @@ flowchart TB
     end
 
     subgraph lifecycle["useWebsocketLifecycle (shared)"]
-        useUrl[useWebsocketUrl]
         layout1{enabled !== false?}
-        findOrCreate[findOrCreateWebsocketConnection]
+        addConnection[client.addConnection]
         addListener[connection.addListener]
         listenerDisconnect[listener.disconnect]
-        layout2[getExistingConnection?.replaceUrl]
+        layout2[client.getConnection?.replaceUrl]
         effect1[registerHook]
         effect2[unregisterHook on cleanup]
-        useLifecycle1 --> useUrl
-        useLifecycle2 --> useUrl
         useLifecycle1 --> layout1
         useLifecycle2 --> layout1
-        layout1 -->|yes| findOrCreate
-        findOrCreate --> addListener
+        layout1 -->|yes| addConnection
+        addConnection --> addListener
         layout1 -->|no| listenerDisconnect
-        useUrl --> layout2
+        layout2 -->|url changed| replaceUrlFlow
         layout1 --> effect1
         effect1 --> effect2
     end
 
-    subgraph connection["WebsocketConnection"]
+    subgraph connection["WebsocketConnection (via WebsocketClient.addConnection)"]
         getExisting{Connection exists?}
         newConn[new WebsocketConnection]
         connect[connect]
         wsOpen[WebSocket OPEN]
         handleOpen[handleOpen]
         notifyListeners[Notify listeners.onOpen]
-        schedulePing[schedulePing]
-        findOrCreate --> getExisting
+        schedulePing{heartbeat.enabled?}
+        addConnection --> getExisting
         getExisting -->|yes| addListener
         getExisting -->|no| newConn
         newConn --> addListener
@@ -82,6 +77,7 @@ flowchart TB
         wsOpen --> handleOpen
         handleOpen --> notifyListeners
         handleOpen --> schedulePing
+        schedulePing -->|yes| schedulePingTimer[schedulePing]
         schedulePing -.->|no pong| pongTimeout
         wsOpen -.->|message event| handleMsg
     end
@@ -92,7 +88,7 @@ flowchart TB
         validMsg{Valid message?}
         isPing{uri === 'ping'?}
         isError{isErrorMethod?}
-        routeMsg[Route to matching listener]
+        routeMsg[forEachMatchingListener]
         onMessage[listener.onMessage / deliverMessage]
         handleMsg --> parseMsg
         parseMsg --> validMsg
@@ -104,26 +100,29 @@ flowchart TB
     end
 
     subgraph errors["Error Flows"]
-        invalidMsg[ws-invalid-message]
+        invalidMsg[connectionEvent invalid-message]
         onErrorTransport[listener.onError transport]
-        parseErr[ws-message-parse-error]
-        serverErr[ws-message-error]
+        parseErr[connectionEvent parse-error]
+        serverErr[connectionEvent message-error]
         onMsgErr[listener.onMessageError]
-        wsErr[ws-error handleError]
+        wsErr[handleError]
         handleClose[handleClose]
         reconnectable{Reconnectable<br/>close code?}
         attemptReconnect[attemptReconnection]
         maxRetries{retries >= MAX?}
-        showMaxRetries[showMaxRetriesExceededNotification]
+        showMaxRetries[connectionEvent max-retries-exceeded]
         deferOffline[deferReconnectionUntilOnline]
-        pongTimeout[ws-pong-timeout]
+        pongTimeout[connectionEvent pong-timeout]
         teardown[teardownSocket]
         replaceUrlFlow[replaceUrl]
         teardownReconnect[teardownAndReconnect]
         offline[handleOffline]
         online[handleOnline]
+        onlineReconnect[handleOnlineForReconnection]
     end
 
+    waitOnline -.->|online after offline| online
+    online --> connect
     validMsg -->|no| invalidMsg
     invalidMsg --> onErrorTransport
     parseMsg -.->|catch| parseErr
@@ -142,11 +141,10 @@ flowchart TB
     deferOffline -->|offline| waitOnline[wait for online]
     deferOffline -->|online| waitBackoff[wait backoff]
     waitBackoff --> connect
-    waitOnline -.->|online event| online
-    online --> connect
+    waitOnline -.->|online event| onlineReconnect
+    onlineReconnect --> attemptReconnect
     pongTimeout --> teardown
     teardown --> attemptReconnect
-    layout2 -->|url changed| replaceUrlFlow
     replaceUrlFlow --> teardownReconnect
     teardownReconnect --> connect
     offline --> teardown
@@ -155,9 +153,10 @@ flowchart TB
     subgraph disconnectFlow["Disconnect Flow"]
         listenerDisconnect --> removeListener[removeWebsocketListenerFromConnection]
         removeListener --> connectionRemove[connection.removeListener]
-        removeListener --> deleteFromStore[Delete from websocketListeners]
+        removeListener --> clientRemove[client.removeListener]
+        connectionRemove --> scheduleCleanup[scheduleConnectionCleanup]
         effect2 -->|unmount cleanup| unregisterHook[unregisterHook]
-        unregisterHook -->|last hook, after delay| removeListener
+        unregisterHook -->|last hook, INITIATOR_REMOVAL_DELAY_MS| removeListener
     end
     end
 
@@ -187,13 +186,14 @@ flowchart TB
 
 ## Hook Entry Points
 
-1. **useWebsocketSubscription** → useWebsocketCore → useWebsocketLifecycle → findOrCreateWebsocketConnection / disconnect
-2. **useWebsocketSubscriptionByKey** → useStore(websocketListeners) → return store or fallback
-3. **useWebsocketMessage** → createWebsocketMessageApi + useWebsocketLifecycle → same connection flow
+1. **useWebsocketSubscription** → createWebsocketSubscriptionApi (useState) + useWebsocketLifecycle + sync options → WebsocketSubscriptionApiPublic
+2. **useWebsocketSubscriptionByKey** → client.getListener(key, 'subscription') → subscription.store or fallbackStore
+3. **useWebsocketMessage** → createWebsocketMessageApi (useState) + useWebsocketLifecycle → WebsocketMessageApiPublic
 
 ## Key Flows
 
-- **Happy**: Hook mounts → lifecycle → find/create connection → addListener → connect → open → onOpen → messages routed → onMessage
-- **URL change**: replaceUrl → teardownAndReconnect → connect with new URL
+- **Happy**: Hook mounts → lifecycle → client.addConnection → addListener → connect → open → onOpen → messages routed via forEachMatchingListener → onMessage/deliverMessage
+- **URL change**: layout effect watches url → client.getConnection(url)?.replaceUrl(url) → teardownAndReconnect → connect with new URL
 - **Enabled=false**: listener.disconnect → removeWebsocketListenerFromConnection
-- **Errors**: invalid/parse/server/transport → onError/onMessageError; close → reconnect or max retries; offline → defer until online
+- **Errors**: invalid/parse/server → connectionEvent + onError/onMessageError; close → reconnect or max retries; offline → defer until online; pong timeout → teardown → attemptReconnection
+- **Manual retry**: WebsocketClient.reconnectAllConnections() → each connection.reconnect() → teardownAndReconnect → connect

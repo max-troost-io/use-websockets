@@ -2,31 +2,17 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   reconnectWaitTime,
   getPingTime,
+  getSubscriptionUris,
   isValidIncomingMessage,
+  isErrorMethod,
   isBrowserOnline,
   isReconnectableCloseCode,
   isSocketOnline,
-  showMaxRetriesExceededNotification,
-  showReconnectionDelayNotification,
-  showReconnectingNotification,
   createPingMessage,
   isConnectionReady
 } from './WebsocketConnection.helpers';
 import { RECONNECTION_CONFIG, WEBSOCKET_CLOSE_CODES } from './constants';
 import { IncomingWebsocketMessage } from './types';
-import { enqueueSnackbar } from 'notistack';
-import { v4 as uuidv4 } from 'uuid';
-
-// Mock notistack
-vi.mock('notistack', () => ({
-  enqueueSnackbar: vi.fn(),
-  closeSnackbar: vi.fn()
-}));
-
-// Mock uuid
-vi.mock('uuid', () => ({
-  v4: vi.fn(() => 'mock-uuid-1234')
-}));
 
 describe('WebsocketConnection.helpers', () => {
   beforeEach(() => {
@@ -55,6 +41,25 @@ describe('WebsocketConnection.helpers', () => {
       expect(reconnectWaitTime(15)).toBe(RECONNECTION_CONFIG.DELAYS.THIRD_PHASE);
       expect(reconnectWaitTime(20)).toBe(RECONNECTION_CONFIG.DELAYS.THIRD_PHASE);
       expect(reconnectWaitTime(100)).toBe(RECONNECTION_CONFIG.DELAYS.THIRD_PHASE);
+    });
+
+    it('should use custom reconnection config when provided', () => {
+      const customConfig = {
+        ...RECONNECTION_CONFIG,
+        DELAYS: {
+          FIRST_PHASE: 1000,
+          SECOND_PHASE: 5000,
+          THIRD_PHASE: 15000
+        },
+        PHASE_THRESHOLDS: {
+          FIRST: 3,
+          SECOND: 8
+        }
+      };
+
+      expect(reconnectWaitTime(0, customConfig)).toBe(1000);
+      expect(reconnectWaitTime(5, customConfig)).toBe(5000);
+      expect(reconnectWaitTime(10, customConfig)).toBe(15000);
     });
   });
 
@@ -106,6 +111,30 @@ describe('WebsocketConnection.helpers', () => {
       expect(isValidIncomingMessage({ uri: null })).toBe(false);
       expect(isValidIncomingMessage({ uri: undefined })).toBe(false);
       expect(isValidIncomingMessage({ uri: {} })).toBe(false);
+    });
+  });
+
+  describe('isErrorMethod', () => {
+    it('should return true for error method', () => {
+      expect(isErrorMethod('error')).toBe(true);
+    });
+
+    it('should return true for conflict method', () => {
+      expect(isErrorMethod('conflict')).toBe(true);
+    });
+
+    it('should return true for exception method', () => {
+      expect(isErrorMethod('exception')).toBe(true);
+    });
+
+    it('should return false for undefined', () => {
+      expect(isErrorMethod(undefined)).toBe(false);
+    });
+
+    it('should return false for non-error methods', () => {
+      expect(isErrorMethod('post')).toBe(false);
+      expect(isErrorMethod('get')).toBe(false);
+      expect(isErrorMethod('subscribe')).toBe(false);
     });
   });
 
@@ -230,99 +259,25 @@ describe('WebsocketConnection.helpers', () => {
     });
   });
 
-  describe('showReconnectionDelayNotification', () => {
-    it('should not show notification when reconnectTries is below threshold', () => {
-      showReconnectionDelayNotification('test-connection', RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD, 5000);
-      expect(enqueueSnackbar).not.toHaveBeenCalled();
+  describe('getSubscriptionUris', () => {
+    it('should return URIs from subscription listeners only', () => {
+      const listeners = new Map([
+        ['sub1', { key: 'sub1', uri: '/api/voyages', type: 'subscription' } as any],
+        ['sub2', { key: 'sub2', uri: '/api/notifications', type: 'subscription' } as any],
+        ['msg1', { key: 'msg1', type: 'message', hasWaitingUri: () => false } as any]
+      ]);
+      expect(getSubscriptionUris(listeners)).toEqual(['/api/voyages', '/api/notifications']);
     });
 
-    it('should not show notification when reconnectTries equals threshold', () => {
-      showReconnectionDelayNotification('test-connection', RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD, 5000);
-      expect(enqueueSnackbar).not.toHaveBeenCalled();
+    it('should return empty array when no subscription listeners', () => {
+      const listeners = new Map([
+        ['msg1', { key: 'msg1', type: 'message', hasWaitingUri: () => false } as any]
+      ]);
+      expect(getSubscriptionUris(listeners)).toEqual([]);
     });
 
-    it('should show notification when reconnectTries exceeds threshold', () => {
-      const name = 'test-connection';
-      const reconnectTries = RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD + 1;
-      const waitTime = 5000;
-
-      showReconnectionDelayNotification(name, reconnectTries, waitTime);
-
-      expect(enqueueSnackbar).toHaveBeenCalledWith(`trying to reconnect to ${name} in ${waitTime / 1000} seconds.`, {
-        key: `${name}-offline`,
-        variant: 'error',
-        preventDuplicate: true
-      });
-    });
-
-    it('should format wait time correctly in seconds', () => {
-      const name = 'test-connection';
-      const reconnectTries = RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD + 1;
-
-      showReconnectionDelayNotification(name, reconnectTries, 4000);
-      expect(enqueueSnackbar).toHaveBeenCalledWith(`trying to reconnect to ${name} in 4 seconds.`, expect.any(Object));
-
-      vi.clearAllMocks();
-
-      showReconnectionDelayNotification(name, reconnectTries, 30000);
-      expect(enqueueSnackbar).toHaveBeenCalledWith(`trying to reconnect to ${name} in 30 seconds.`, expect.any(Object));
-    });
-  });
-
-  describe('showMaxRetriesExceededNotification', () => {
-    it('should show error notification with retry action', () => {
-      const name = 'test-connection';
-      const onRetry = vi.fn();
-
-      showMaxRetriesExceededNotification(name, onRetry);
-
-      expect(enqueueSnackbar).toHaveBeenCalledWith(`Connection to ${name} failed after maximum retries.`, {
-        key: `${name}-max-retries`,
-        variant: 'error',
-        preventDuplicate: true,
-        action: expect.any(Function)
-      });
-    });
-
-    it('should invoke onRetry when action button onClick is triggered', () => {
-      const name = 'test-connection';
-      const onRetry = vi.fn();
-
-      showMaxRetriesExceededNotification(name, onRetry);
-
-      const call = (enqueueSnackbar as ReturnType<typeof vi.fn>).mock.calls[0];
-      const actionFn = call[1].action;
-      const snackbarKey = 'test-key';
-
-      const buttonElement = actionFn(snackbarKey);
-      buttonElement.props.onClick();
-
-      expect(onRetry).toHaveBeenCalled();
-    });
-  });
-
-  describe('showReconnectingNotification', () => {
-    it('should not show notification when reconnectTries is below threshold', () => {
-      showReconnectingNotification('test-connection', RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD);
-      expect(enqueueSnackbar).not.toHaveBeenCalled();
-    });
-
-    it('should not show notification when reconnectTries equals threshold', () => {
-      showReconnectingNotification('test-connection', RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD);
-      expect(enqueueSnackbar).not.toHaveBeenCalled();
-    });
-
-    it('should show notification when reconnectTries exceeds threshold', () => {
-      const name = 'test-connection';
-      const reconnectTries = RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD + 1;
-
-      showReconnectingNotification(name, reconnectTries);
-
-      expect(enqueueSnackbar).toHaveBeenCalledWith(`trying to reconnect to ${name}...`, {
-        key: `${name}-reconnecting`,
-        variant: 'info',
-        preventDuplicate: true
-      });
+    it('should return empty array for empty map', () => {
+      expect(getSubscriptionUris(new Map())).toEqual([]);
     });
   });
 
@@ -343,8 +298,7 @@ describe('WebsocketConnection.helpers', () => {
       expect(parsed).toMatchObject({
         method: 'post',
         uri: 'ping',
-        body: expect.any(Number),
-        correlation: 'mock-uuid-1234'
+        body: expect.any(Number)
       });
     });
 
@@ -354,14 +308,6 @@ describe('WebsocketConnection.helpers', () => {
       const parsed = JSON.parse(message);
 
       expect(parsed.body).toBe(now);
-    });
-
-    it('should generate a correlation ID using uuid', () => {
-      const message = createPingMessage();
-      const parsed = JSON.parse(message);
-
-      expect(parsed.correlation).toBe('mock-uuid-1234');
-      expect(uuidv4).toHaveBeenCalled();
     });
 
     it('should return a valid JSON string', () => {

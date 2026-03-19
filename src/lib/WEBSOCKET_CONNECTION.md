@@ -4,6 +4,11 @@ A robust WebSocket connection manager with automatic reconnection, heartbeat mon
 
 ## 📚 Navigation
 
+### External Links
+
+- **[Package README](../../README.md)** — Package overview and quick start
+- **[Mono-Fleet Root](../../../../README.md)** — Return to workspace overview
+
 ### Internal Sections
 
 - [Features](#features)
@@ -29,7 +34,7 @@ A robust WebSocket connection manager with automatic reconnection, heartbeat mon
 - **React Integration**: TanStack Store for reactive data updates
 - **Online/Offline Detection**: Browser connectivity change handling
 - **Two API Types**: **Subscription** (streaming) and **Message** (request/response)
-- **User Notifications**: Status updates via snackbar notifications
+- **Event Logging**: Optional `connectionEvent` callback for connection lifecycle events
 
 ## Architecture Overview
 
@@ -86,13 +91,20 @@ classDiagram
         +returns Store
     }
 
+    class WebsocketClient {
+        +addConnection(key, url)
+        +getConnection(key)
+        +getListener(key, type)
+        +reconnectAllConnections()
+        +connectionEvent: callback
+    }
+
     class WebsocketConnection {
         -_socket: WebSocket
         -_listeners: Map~string, WebsocketListener~
         -reconnectTries: number
         +addListener(listener)
         +removeListener(listener)
-        +getUriApiByKey(key)
         +getSocket()
         +replaceUrl(url)
         +reconnect()
@@ -136,11 +148,12 @@ classDiagram
         +close()
     }
 
-    useWebsocketSubscription --> WebsocketConnection : uses
-    useWebsocketMessage --> WebsocketConnection : uses
+    useWebsocketSubscription --> WebsocketClient : uses
+    useWebsocketMessage --> WebsocketClient : uses
+    useWebsocketSubscriptionByKey --> WebsocketClient : getListener
     useWebsocketSubscription --> WebsocketSubscriptionApi : creates
     useWebsocketMessage --> WebsocketMessageApi : creates
-    useWebsocketSubscriptionByKey --> WebsocketSubscriptionApi : reads store
+    WebsocketClient --> WebsocketConnection : manages
     WebsocketConnection "1" --> "*" WebsocketSubscriptionApi : manages
     WebsocketConnection "1" --> "*" WebsocketMessageApi : manages
     WebsocketConnection --> WebSocket : wraps
@@ -153,14 +166,14 @@ classDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Client
+    participant Client as WebsocketClient
     participant Connection as WebsocketConnection
     participant Server as WebSocket Server
     participant Browser
 
     Note over Connection: Initial State: Disconnected
 
-    Client->>Connection: new WebsocketConnection()
+    Client->>Connection: addConnection creates WebsocketConnection
     Client->>Connection: addListener(subscriptionApi)
 
     Note over Connection: State: Connecting
@@ -176,7 +189,7 @@ sequenceDiagram
         end
 
         alt Normal Disconnection
-            Client->>Connection: removeListener() (last listener)
+            Note over Client,Connection: Last hook unmounts → removeListener()
             Note over Connection: State: Disconnected
         else Abnormal Closure (code 1006)
             Server-->>Connection: handleClose() / handleError()
@@ -201,11 +214,11 @@ sequenceDiagram
     end
 
     alt No Listeners Registered
-        Connection->>Connection: Check listeners
+        Note over Connection: scheduleConnectionCleanup → close when empty
         Note over Connection: State: Disconnected
     end
 
-    Note right of Connection: Notifications shown<br/>after 10 reconnection attempts
+    Note right of Connection: connectionEvent invoked<br/>after 10 reconnection attempts
 ```
 
 ## Message Flow
@@ -216,6 +229,7 @@ sequenceDiagram
 sequenceDiagram
     participant Component
     participant Hook as useWebsocketSubscription
+    participant Client as WebsocketClient
     participant Connection as WebsocketConnection
     participant SubApi as WebsocketSubscriptionApi
     participant Socket as WebSocket
@@ -223,7 +237,8 @@ sequenceDiagram
 
     Component->>Hook: useWebsocketSubscription(options)
     Hook->>SubApi: createWebsocketSubscriptionApi(key, options)
-    Hook->>Connection: findOrCreateWebsocketConnection(url)
+    Hook->>Client: addConnection(key, url)
+    Client->>Connection: new or existing WebsocketConnection
     Hook->>Connection: addListener(SubApi)
     Connection->>Socket: new WebSocket(url)
 
@@ -277,15 +292,15 @@ sequenceDiagram
     participant Connection as WebsocketConnection
     participant Socket as WebSocket
     participant Listener as WebsocketListener
-    participant User
+    participant Callback as connectionEvent
     participant Browser
 
-    Socket-->>Connection: close event (code: 1006)
+    Socket-->>Connection: close event (code !== 1000)
     Connection->>Connection: reconnectTries++
     Connection->>Connection: Calculate backoff time
 
-    alt reconnectTries >= NOTIFICATION_THRESHOLD (10)
-        Connection->>User: Show error notification
+    alt reconnectTries > NOTIFICATION_THRESHOLD (10)
+        Connection->>Callback: reconnecting event
     end
 
     Connection->>Connection: wait(backoffTime)
@@ -296,21 +311,16 @@ sequenceDiagram
         Browser-->>Connection: online event
     end
 
-    alt reconnectTries >= NOTIFICATION_THRESHOLD (10)
-        Connection->>User: Show reconnecting notification
+    alt reconnectTries >= MAX_RETRY_ATTEMPTS (20)
+        Connection->>Callback: max-retries-exceeded event
+        Note over Connection: Stop auto-reconnect; app may call reconnectAllConnections()
+    else retries < MAX
+        Connection->>Socket: new WebSocket(url)
     end
-
-    Note over Connection: If reconnectTries >= 20, show max-retries notification and stop (no new WebSocket)
-
-    Connection->>Socket: new WebSocket(url)
 
     alt Connection successful
         Socket-->>Connection: open event
         Connection->>Connection: reconnectTries = 0
-        Connection->>User: Dismiss notifications
-        alt Was showing notifications
-            Connection->>User: Show success notification
-        end
         Connection->>Listener: onOpen()
     else Connection failed
         Socket-->>Connection: close event
@@ -339,12 +349,12 @@ flowchart TD
     Wait30 --> CheckNotify
     Wait90 --> CheckNotify
 
-    CheckNotify -->|Yes| ShowNotifications[Show error/reconnecting<br/>notifications]
+    CheckNotify -->|Yes| InvokeCallback[Invoke connectionEvent<br/>reconnecting]
     CheckNotify -->|No| Reconnect
-    ShowNotifications --> Reconnect[Create new WebSocket]
+    InvokeCallback --> Reconnect[Create new WebSocket]
 
     Reconnect --> Success{Connection<br/>successful?}
-    Success -->|Yes| Reset[Reset reconnectTries = 0<br/>Notify listeners<br/>Dismiss notifications]
+    Success -->|Yes| Reset[Reset reconnectTries = 0<br/>Notify listeners<br/>Invoke connectionEvent open]
     Success -->|No| Increment
 
     Reset --> End([Connected])
@@ -358,11 +368,13 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant Hook as useWebsocketSubscription
+    participant Client as WebsocketClient
     participant SubApi as WebsocketSubscriptionApi
     participant Connection as WebsocketConnection
     participant Socket as WebSocket
 
     Hook->>SubApi: createWebsocketSubscriptionApi(key, options)
+    Hook->>Client: addConnection(key, url)
     Hook->>Connection: addListener(SubApi)
     Hook->>SubApi: registerHook(id)
     SubApi->|if socket open| SubApi: onOpen()
@@ -553,6 +565,31 @@ interface WebsocketSubscriptionStore<TData> {
 }
 ```
 
+## App-Level Setup
+
+Wrap your app with `WebsocketClientProvider` and pass a `WebsocketClient` instance. Configure the client with `connectionEvent` for logging and `reconnectAllConnections()` when the WebSocket URL changes (e.g. auth context):
+
+```tsx
+import { WebsocketClient, WebsocketClientProvider } from '@mono-fleet/use-websocket';
+
+const websocketClient = new WebsocketClient({
+  connectionEvent: (event) => {
+    // Log events: connect, close, error, reconnecting, max-retries-exceeded, etc.
+  }
+});
+
+function App() {
+  return (
+    <WebsocketClientProvider client={websocketClient}>
+      <YourApp />
+    </WebsocketClientProvider>
+  );
+}
+```
+
+- **connectionEvent**: Optional callback for connection lifecycle events (connect, close, error, reconnecting, max-retries-exceeded, pong-timeout, etc.)
+- **reconnectAllConnections()**: Call when the WebSocket URL changes to re-establish all connections with the new URL
+
 ## Configuration
 
 ### Timing Constants
@@ -581,23 +618,27 @@ Subscriptions automatically subscribe when the WebSocket connection opens.
 
 ### Notification Threshold
 
-User notifications are only shown after **10 failed reconnection attempts** to prevent spam during brief network interruptions. Reconnection stops after **20 attempts** (~18 minutes); users can retry manually via the notification action.
+The `connectionEvent` callback is invoked with `reconnecting` only after **10 failed reconnection attempts** to avoid spam during brief network interruptions. Reconnection stops after **20 attempts** (~18 minutes); call `WebsocketClient.reconnectAllConnections()` to retry manually.
 
 ## Events and Monitoring
 
-WebSocket events can be logged by calling `WebsocketConnection.setCustomLogger` at app startup.
+Configure `connectionEvent` on `WebsocketClient` to receive connection lifecycle events. Event types:
 
 ### Connection-Level Events
-- `ws-connect`: Connection initiated
-- `ws-close`: Connection closed (with code, reason, wasClean)
-- `ws-error`: Error occurred
-- `ws-reconnect`: Reconnection attempt (with tries count)
+- `connect`: Connection initiated
+- `open`: Connection opened
+- `close`: Connection closed (with code, reason, wasClean, subscriptions count)
+- `error`: Transport error occurred
+- `reconnecting`: Reconnection attempt (with retries count)
+- `max-retries-exceeded`: Auto-reconnect stopped; call `reconnectAllConnections()` to retry
+- `pong-timeout`: No pong received within heartbeat timeout
+- `cleanup`: Connection cleaned up (no listeners remain)
 
-### Listener-Level Events
-- `ws-on-open`: Listener notified when connection opens
-- `ws-subscribe`: Subscription message sent
-- `ws-unsubscribe`: Unsubscription message sent
-- `ws-send-message`: Custom message sent (non-subscribe/unsubscribe)
+### Message Events
+- `send-message`: Outgoing message sent
+- `invalid-message`: Incoming message missing required structure
+- `parse-error`: Failed to parse incoming JSON
+- `message-error`: Server sent error (method: error, conflict, or exception)
 
 ## API Reference
 
@@ -615,6 +656,24 @@ Returns the store of a subscription by key. Use when a parent creates the subscr
 
 Manages a WebSocket Message API for request/response messaging. Use for one-off commands (validate, modify, mark read). Provides `sendMessage(uri, method, body?, options?)` and `sendMessageNoWait(uri, method, body?)`.
 
+### WebsocketClient Class
+
+#### Public Methods
+
+- `addConnection(key: string, url: string): WebsocketConnection`
+  - Gets or creates a connection for the given key/URL
+- `getConnection(key: string): WebsocketConnection | undefined`
+  - Returns the connection for the given key
+- `getListener<TData>(key: string, type: 'subscription' | 'message'): WebsocketSubscriptionApi | WebsocketMessageApi | undefined`
+  - Returns a listener by key and type
+- `reconnectAllConnections(): void`
+  - Reconnects all active connections (e.g. when URL changes)
+
+#### Configuration (constructor options)
+
+- `connectionEvent?: (event) => void` — Callback for connection lifecycle events
+- `maxRetryAttempts`, `notificationThreshold`, `heartbeat`, etc.
+
 ### WebsocketConnection Class
 
 #### Public Methods
@@ -623,16 +682,14 @@ Manages a WebSocket Message API for request/response messaging. Use for one-off 
   - Registers a subscription or message API; initiates connection if needed
 - `removeListener(listener: WebsocketListener): void`
   - Unregisters a listener and schedules cleanup if none remain
-- `getUriApiByKey<TData>(key: string): WebsocketSubscriptionApi<TData, any> | undefined`
-  - Retrieves a subscription API by key (message APIs are not returned)
 - `getSocket(): WebSocket | undefined`
   - Returns the underlying WebSocket instance
 - `replaceUrl(newUrl: string): Promise<void>`
   - Replaces the URL and re-establishes the connection
-- `reconnect(): void`
-  - Triggers reconnection. Called by `websocketConnectionsReconnect()` when `useReconnectWebsocketConnections` (from `@mono-fleet/common-components`) detects region/role change
-- `handleClose(event: CloseEvent): Promise<void>`
-  - Handles close events (public for testing)
+- `reconnect(): Promise<void>`
+  - Tears down and re-establishes the connection
+- `resetRetriesAndReconnect(): void`
+  - Resets retry counter and reconnects (e.g. after max-retries-exceeded)
 
 #### Public Properties
 
@@ -676,24 +733,21 @@ Manages a WebSocket Message API for request/response messaging. Use for one-off 
 - `url: string` — WebSocket URL
 - `isEnabled: boolean` — Whether this API is enabled
 
-### Internal Helpers (websocketStores.helpers)
+### Internal Helpers (websocketClient.helpers)
 
 These functions are used internally by the hooks and are not exported from the package:
 
-- `findOrCreateWebsocketConnection(key, url)` — Gets or creates connection singleton (key = URL path)
-- `getExistingWebsocketConnection(key)` — Gets existing connection
-- `createWebsocketSubscriptionApi(key, options)` — Creates or returns WebsocketSubscriptionApi singleton
-- `createWebsocketMessageApi(key, options)` — Creates or returns WebsocketMessageApi singleton
-- `getWebsocketUriApiByKey(key)` — Retrieves subscription API by key
-- `getWebsocketMessageApiByKey(key)` — Retrieves message API by key
-- `removeWebsocketListenerFromConnection(listener)` — Removes listener from connection and store
+- `createWebsocketSubscriptionApi(client, key, options)` — Creates or returns WebsocketSubscriptionApi singleton
+- `createWebsocketMessageApi(client, key, options)` — Creates or returns WebsocketMessageApi singleton
+- `removeWebsocketListenerFromConnection(client, listener)` — Removes listener from connection and client
 
 ## Dependencies
 
 - `@tanstack/react-store`: Reactive state management
 - `@tanstack/store`: Core store implementation
-- `@mono-fleet/common-utils`: Utility functions (wait)
-- `notistack`: User notifications
-- `uuid`: Correlation ID generation
 - `fast-equals`: Deep equality comparison
 - `usehooks-ts`: React hooks utilities (useIsomorphicLayoutEffect)
+
+## License
+
+Part of the mono-fleet monorepo.

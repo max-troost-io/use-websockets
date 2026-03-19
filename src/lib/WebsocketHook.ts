@@ -1,9 +1,9 @@
-import { useStore } from '@tanstack/react-store';
 import { Store } from '@tanstack/store';
 import { deepEqual } from 'fast-equals';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { WebsocketMessageApi } from './WebsocketMessageApi';
+import { useWebsocketClient } from './WebsocketProvider';
 import { WebsocketSubscriptionApi } from './WebsocketSubscriptionApi';
 import {
   createInitialWebsocketSubscriptionStore,
@@ -14,14 +14,11 @@ import {
   WebsocketSubscriptionOptions,
   WebsocketSubscriptionStore
 } from './types';
-import { websocketListeners } from './websocketStores';
 import {
   createWebsocketMessageApi,
   createWebsocketSubscriptionApi,
-  findOrCreateWebsocketConnection,
-  getExistingWebsocketConnection,
   removeWebsocketListenerFromConnection
-} from './websocketStores.helpers';
+} from './websocketClient.helpers';
 
 /**
  * WebSocket React hooks for the shared connection architecture.
@@ -108,20 +105,21 @@ interface HookableListener extends WebsocketListener {
  */
 function useWebsocketLifecycle(listener: HookableListener, url: string, enabled: boolean | undefined): void {
   const id = useId();
+  const client = useWebsocketClient();
 
   useIsomorphicLayoutEffect(() => {
     if (enabled !== false) {
-      const connection = findOrCreateWebsocketConnection(listener.url, url);
+      const connection = client.addConnection(listener.url, url);
       connection.addListener(listener);
     } else {
-      listener.disconnect(() => removeWebsocketListenerFromConnection(listener));
+      listener.disconnect(() => removeWebsocketListenerFromConnection(client, listener));
     }
-  }, [enabled, listener]);
+  }, [enabled, listener, client]);
 
   useIsomorphicLayoutEffect(() => {
-    const connection = getExistingWebsocketConnection(url);
+    const connection = client.getConnection(url);
     connection?.replaceUrl(url);
-  }, [url, url]);
+  }, [url, client]);
 
   useEffect(() => {
     const initiatorId = id;
@@ -129,9 +127,9 @@ function useWebsocketLifecycle(listener: HookableListener, url: string, enabled:
       listener.registerHook(id);
     }
     return () => {
-      listener.unregisterHook(initiatorId, () => removeWebsocketListenerFromConnection(listener));
+      listener.unregisterHook(initiatorId, () => removeWebsocketListenerFromConnection(client, listener));
     };
-  }, [enabled, id, listener]);
+  }, [client, enabled, id, listener]);
 }
 
 /**
@@ -148,7 +146,7 @@ function useWebsocketLifecycle(listener: HookableListener, url: string, enabled:
  *    - Manages the underlying WebSocket connection lifecycle
  *    - Handles reconnection, heartbeat, and connection state
  *    - Routes incoming messages to the appropriate Subscription handlers
- *    - Retrieved via `findOrCreateWebsocketConnection()` which ensures only one
+ *    - Retrieved via `WebsocketClient.addConnection()` which ensures only one
  *      connection exists per WebSocket URL
  *
  * 2. **WebsocketSubscriptionApi** (one per subscription per connection)
@@ -168,7 +166,7 @@ function useWebsocketLifecycle(listener: HookableListener, url: string, enabled:
  *   │           ├─→ Provides reactive store for data updates
  *   │           └─→ Handles subscribe/unsubscribe lifecycle
  *   │
- *   └─→ findOrCreateWebsocketConnection(url, url)
+ *   └─→ client.addConnection(url, url)
  *         └─→ Returns/creates WebsocketConnection singleton (per URL)
  *               ├─→ Manages WebSocket connection (connect, reconnect, heartbeat)
  *               ├─→ Routes messages to registered listeners
@@ -239,9 +237,10 @@ function useWebsocketLifecycle(listener: HookableListener, url: string, enabled:
 export function useWebsocketSubscription<TData = unknown, TBody = unknown>(
   options: WebsocketSubscriptionOptions<TData, TBody>
 ): WebsocketSubscriptionApiPublic<TData, TBody> {
-  const [subscriptionApi] = useState<WebsocketSubscriptionApi<TData, TBody>>(() => {
-    return createWebsocketSubscriptionApi(options.key, options);
-  });
+  const client = useWebsocketClient();
+  const [subscriptionApi] = useState<WebsocketSubscriptionApi<TData, TBody>>(() =>
+    createWebsocketSubscriptionApi(client, options.key, options)
+  );
 
   useWebsocketLifecycle(subscriptionApi, options.url, options.enabled);
 
@@ -282,13 +281,9 @@ export function useWebsocketSubscription<TData = unknown, TBody = unknown>(
  * @see {@link WebsocketSubscriptionStore} - Store shape
  */
 export const useWebsocketSubscriptionByKey = <TData = unknown>(key: string) => {
-  const subscription = useStore(websocketListeners, (listeners) => {
-    const listener = listeners.get(key);
-    if (listener && 'uri' in listener) {
-      return listener as WebsocketSubscriptionApi<TData, any>;
-    }
-    return undefined;
-  });
+  const client = useWebsocketClient();
+  const subscription = client.getListener<TData, any>(key, 'subscription');
+
   const [fallbackStore] = useState<Store<WebsocketSubscriptionStore<TData>>>(
     () => new Store<WebsocketSubscriptionStore<TData>>(createInitialWebsocketSubscriptionStore<TData>())
   );
@@ -316,7 +311,7 @@ export const useWebsocketSubscriptionByKey = <TData = unknown>(key: string) => {
  *   - `url`: The WebSocket URL
  *   - `key`: Unique identifier (components with same key share the API)
  *   - `enabled`: Whether this API is enabled (default: true)
- *   - `responseTimeoutMs`: Default timeout for `sendMessage` (default: 5000)
+ *   - `responseTimeoutMs`: Default timeout for `sendMessage` (default: 10000)
  *   - `onError`, `onMessageError`, `onClose`: Optional callbacks
  * @returns {@link WebsocketMessageApiPublic} with `sendMessage`, `sendMessageNoWait`, `reset`, `url`, `key`, `isEnabled`
  *
@@ -325,7 +320,7 @@ export const useWebsocketSubscriptionByKey = <TData = unknown>(key: string) => {
  * const api = useWebsocketMessage<ModifyVoyageUim, ModifyVoyageUim>({
  *   key: 'voyages/modify',
  *   url: '/api',
- *   responseTimeoutMs: 5000
+ *   responseTimeoutMs: 10000
  * });
  *
  * // Await response (full form: uri, method, body?, options?)
@@ -345,7 +340,8 @@ export const useWebsocketSubscriptionByKey = <TData = unknown>(key: string) => {
  * @see {@link WebsocketMessageApiPublic} - Public API surface
  */
 export const useWebsocketMessage = (options: WebsocketMessageOptions): WebsocketMessageApiPublic => {
-  const [messageApi] = useState<WebsocketMessageApi>(() => createWebsocketMessageApi(options.key, options));
+  const client = useWebsocketClient();
+  const [messageApi] = useState<WebsocketMessageApi>(() => createWebsocketMessageApi(client, options.key, options));
 
   useWebsocketLifecycle(messageApi, options.url, options.enabled);
 

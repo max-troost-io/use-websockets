@@ -7,12 +7,12 @@
  * - Heartbeat/ping-pong to detect and recover from stale connections
  * - URI-based message routing to multiple listeners over a single connection
  * - Browser online/offline detection and deferred reconnection
- * - Singleton connection per URL key (via `findOrCreateWebsocketConnection`)
+ * - Singleton connection per URL key (via {@link WebsocketClient.addConnection})
  * - User notifications for connection status (with configurable threshold)
  *
  * ## Architecture
  *
- * Connections are created via {@link findOrCreateWebsocketConnection} which ensures one
+ * Connections are created via {@link WebsocketClient.addConnection} which ensures one
  * connection per key. Listeners ({@link WebsocketSubscriptionApi} or {@link WebsocketMessageApi})
  * register via {@link addListener} and receive messages routed by URI.
  *
@@ -29,37 +29,22 @@
  * @module WebsocketConnection
  */
 
-import { wait } from './utils';
-import { closeSnackbar, enqueueSnackbar } from 'notistack';
-import { v4 as uuidv4 } from 'uuid';
-import { CONNECTION_CLEANUP_DELAY, HEARTBEAT_CONFIG, RECONNECTION_CONFIG, WEBSOCKET_CLOSE_CODES } from './constants';
+import { wait } from '@mono-fleet/common-utils';
+import { TEARDOWN_RECONNECT_DELAY_MS, WEBSOCKET_CLOSE_CODES } from './constants';
 import { SendMessage, WebsocketListener } from './types';
+import { WebsocketClient } from './WebsocketClient';
 import {
   createPingMessage,
   getPingTime,
+  getSubscriptionUris,
   isBrowserOnline,
   isConnectionReady,
   isErrorMethod,
   isReconnectableCloseCode,
   isSocketOnline,
   isValidIncomingMessage,
-  reconnectWaitTime,
-  showMaxRetriesExceededNotification,
-  showReconnectingNotification,
-  showReconnectionDelayNotification
+  reconnectWaitTime
 } from './WebsocketConnection.helpers';
-import { WebsocketSubscriptionApi } from './WebsocketSubscriptionApi';
-
-/**
- * Optional custom logger for WebSocket connection events.
- * Set via {@link WebsocketConnection.setCustomLogger}.
- */
-export interface WebsocketLogger {
-  /** Logs connection events (e.g. ws-connect, ws-close, ws-error, ws-reconnect) */
-  log?(level: 'debug' | 'info' | 'warn' | 'error', message: string, context?: Record<string, unknown>): void;
-  /** Called when max retry attempts exceeded; use to trigger token refresh or other recovery */
-  connectionFailed?: (url: string, retries: number, subscriptions: number) => void;
-}
 
 /**
  * Manages a WebSocket connection with automatic reconnection, heartbeat monitoring, and URI-based message routing.
@@ -69,7 +54,7 @@ export interface WebsocketLogger {
  * - Heartbeat/ping mechanism to keep connections alive
  * - Multiple URI API registration for routing messages to different handlers
  * - Online/offline detection and handling
- * - Custom logger support for monitoring (configure via {@link setCustomLogger}
+ * - Custom logger support for monitoring (configure via {@link WebsocketClient} connectionEvent)
  * - User notifications for connection status
  *
  * @example
@@ -86,24 +71,9 @@ export interface WebsocketLogger {
  * connection.addListener(uriApi);
  * ```
  *
- * @see {@link websocketConnectionsReconnect} - Reconnect all connections (e.g. on auth change)
- * @see {@link setCustomLogger} - Configure logging and connection-failed callback
+ * @see {@link WebsocketClient.reconnectAllConnections} - Reconnect all connections (e.g. on auth change)
  */
 export class WebsocketConnection {
-  // ─── Static: Custom Logger ───────────────────────────────────────────
-
-  /** Custom logger instance. Use {@link setCustomLogger} to configure. */
-  private static _logger: WebsocketLogger | undefined;
-
-  /**
-   * Sets a custom logger for WebSocket connection events.
-   *
-   * @param logger - Logger implementation, or `undefined` to clear
-   */
-  public static setCustomLogger(logger: WebsocketLogger | undefined): void {
-    WebsocketConnection._logger = logger;
-  }
-
   // ─── Properties ─────────────────────────────────────────────────────
   /** The underlying WebSocket instance */
   private _socket?: WebSocket;
@@ -113,9 +83,6 @@ export class WebsocketConnection {
 
   /** The WebSocket URL */
   private _url: string;
-
-  /** Display name extracted from URL pathname for user notifications */
-  private _name: string;
 
   /** Timeout for the next ping message */
   private pingTimeOut: ReturnType<typeof setTimeout> | undefined;
@@ -141,17 +108,22 @@ export class WebsocketConnection {
    */
   private cachedMessages: SendMessage<string, string, any>[] = [];
 
+  /** The WebsocketClient instance */
+  private _client: WebsocketClient;
+
   // ─── Constructor ────────────────────────────────────────────────────
 
   /**
    * Creates a new WebSocket connection instance.
-   * Note: The connection is not established until a URI API is added.
+   *
+   * The connection is not established until a listener is added via {@link addListener}.
    *
    * @param url - The WebSocket URL to connect to
+   * @param client - The {@link WebsocketClient} for configuration (reconnection, heartbeat, etc.)
    */
-  constructor(url: string) {
+  constructor(url: string, client: WebsocketClient) {
     this._url = url;
-    this._name = new URL(url).pathname;
+    this._client = client;
   }
 
   // ─── Public Getters ─────────────────────────────────────────────────
@@ -187,25 +159,6 @@ export class WebsocketConnection {
   // ─── Public API: URI Management ─────────────────────────────────────
 
   /**
-   * Retrieves a registered subscription API by its unique key.
-   * Message APIs are not returned; use {@link getWebsocketMessageApiByKey} for those.
-   *
-   * @template TData - The type of data stored in the subscription store
-   * @param key - The unique key identifying the subscription (must match the key used in {@link addListener})
-   * @returns The {@link WebsocketSubscriptionApi} instance if found, or `undefined`
-   *
-   * @see {@link addListener} - Method to register a listener
-   * @see {@link getWebsocketUriApiByKey} - Global function to search across all connections
-   */
-  public getUriApiByKey = <TData = unknown>(key: string): WebsocketSubscriptionApi<TData, any> | undefined => {
-    const listener = this._listeners.get(key);
-    if (listener && 'uri' in listener) {
-      return listener as WebsocketSubscriptionApi<TData, any>;
-    }
-    return undefined;
-  };
-
-  /**
    * Registers a listener (subscription or message API) with this connection.
    *
    * Initiates the WebSocket connection if not already connected. Sets up the send callback
@@ -232,7 +185,7 @@ export class WebsocketConnection {
    * Unregisters a listener and schedules connection cleanup if no listeners remain.
    *
    * Disconnects the listener's send callback and removes it from the routing map.
-   * The WebSocket connection will be closed after {@link CONNECTION_CLEANUP_DELAY} if no other
+   * The WebSocket connection will be closed after {@link CONNECTION_CLEANUP_DELAY_MS} if no other
    * listeners are registered.
    *
    * @param listener - The listener instance to unregister
@@ -247,16 +200,16 @@ export class WebsocketConnection {
     this.scheduleConnectionCleanup();
   };
 
-  /** Schedules connection close after {@link CONNECTION_CLEANUP_DELAY} when no listeners remain. */
+  /** Schedules connection close after configured delay when no listeners remain. */
   private scheduleConnectionCleanup = () => {
-    this.closeConnectionTimeOut = setTimeout(
-      () => {
-        if (this._listeners.size === 0) {
-          this._socket?.close();
-        }
-      },
-      import.meta.env?.MODE !== 'test' ? CONNECTION_CLEANUP_DELAY.PRODUCTION_MS : CONNECTION_CLEANUP_DELAY.TEST_MS
-    );
+    const { connectionCleanupDelayMs } = this._client;
+
+    this.closeConnectionTimeOut = setTimeout(() => {
+      if (this._listeners.size === 0) {
+        this._socket?.close();
+        this._client.removeConnection(this.url);
+      }
+    }, connectionCleanupDelayMs);
   };
 
   // ─── Public API: Connection Control ─────────────────────────────────
@@ -301,7 +254,6 @@ export class WebsocketConnection {
   public resetRetriesAndReconnect = (): void => {
     this.reconnectTries = 0;
     this._maxRetriesExceeded = false;
-    closeSnackbar(`${this._name}-max-retries`);
     this.connect();
   };
 
@@ -313,17 +265,16 @@ export class WebsocketConnection {
    * Sets up all event listeners and logs the connection attempt via the custom logger if configured.
    */
   private connect = () => {
-    const hasEnabledListener = Array.from(this._listeners.values()).some((listener) => listener.isEnabled);
+    const hasEnabledListener = this._listeners.values().some((listener) => listener.isEnabled);
     if (isConnectionReady(this._socket) || !hasEnabledListener) {
       return;
     }
-    WebsocketConnection._logger?.log?.('info', 'ws-connect', {
+    this._client.connectionEvent?.({
+      type: 'connect',
       url: this._url,
-      uriApis: Array.from(this._listeners)
-        .filter(([_, listener]) => 'uri' in listener)
-        .map(([_, listener]) => (listener as { uri: string }).uri)
+      retries: this.reconnectTries,
+      uriApis: getSubscriptionUris(this._listeners)
     });
-
     this._socket = new WebSocket(this._url);
     this._socket.addEventListener('close', this.handleClose);
     this._socket.addEventListener('message', this.handleMessage);
@@ -360,8 +311,7 @@ export class WebsocketConnection {
       this._listeners.forEach((listener) => listener.reset());
       this.reconnectTries = 0;
       this._maxRetriesExceeded = false;
-      closeSnackbar(`${this._name}-max-retries`);
-      await wait(1000);
+      await wait(TEARDOWN_RECONNECT_DELAY_MS);
       this.connect();
     } finally {
       this._isReconnecting = false;
@@ -373,9 +323,9 @@ export class WebsocketConnection {
    */
   private cleanupConnection = () => {
     if (this._listeners.size === 0) {
-      WebsocketConnection._logger?.log?.('info', 'ws-closed', {
-        url: this._url,
-        subscriptions: this._listeners.size
+      this._client.connectionEvent?.({
+        type: 'cleanup',
+        url: this._url
       });
       this.removeListeners();
       this._socket = undefined;
@@ -415,15 +365,19 @@ export class WebsocketConnection {
    * Shows user notifications after the threshold number of attempts.
    * Only attempts reconnection when the browser is online.
    * When closeCode is 1013 (Try Again Later), waits an extra delay before reconnecting.
-   * Stops after {@link RECONNECTION_CONFIG.MAX_RETRY_ATTEMPTS} and shows a permanent error with a manual retry button.
+   * Stops after configured MAX_RETRY_ATTEMPTS and shows a permanent error with a manual retry button.
    *
    * @param closeCode - Optional WebSocket close code; used to apply TRY_AGAIN_LATER delay when 1013
    */
   private attemptReconnection = async (closeCode?: number) => {
-    if (this.reconnectTries >= RECONNECTION_CONFIG.MAX_RETRY_ATTEMPTS) {
+    const { maxRetryAttempts, notificationThreshold, tryAgainLaterDelayMs } = this._client;
+    if (this.reconnectTries >= maxRetryAttempts) {
       this._maxRetriesExceeded = true;
-      WebsocketConnection._logger?.connectionFailed?.(this._url, this.reconnectTries, this._listeners.size);
-      showMaxRetriesExceededNotification(this._name, this.resetRetriesAndReconnect);
+      this._client.connectionEvent?.({
+        type: 'max-retries-exceeded',
+        url: this._url,
+        retries: this.reconnectTries
+      });
       return;
     }
 
@@ -432,25 +386,23 @@ export class WebsocketConnection {
     }
 
     if (closeCode === WEBSOCKET_CLOSE_CODES.TRY_AGAIN_LATER) {
-      showReconnectionDelayNotification(this._name, this.reconnectTries, RECONNECTION_CONFIG.TRY_AGAIN_LATER_DELAY_MS);
-      await wait(RECONNECTION_CONFIG.TRY_AGAIN_LATER_DELAY_MS);
+      if (this.reconnectTries > notificationThreshold) {
+        this._client.connectionEvent?.({ type: 'reconnecting', url: this._url, retries: this.reconnectTries });
+      }
+
+      await wait(tryAgainLaterDelayMs);
       if (this.deferReconnectionUntilOnline()) {
         return;
       }
     }
 
     this.reconnectTries++;
-    WebsocketConnection._logger?.log?.('info', 'ws-reconnect', {
-      url: this._url,
-      uriApis: Array.from(this._listeners)
-        .filter(([_, listener]) => 'uri' in listener)
-        .map(([_, listener]) => (listener as { uri: string }).uri),
-      retries: this.reconnectTries
-    });
 
     const waitTime = reconnectWaitTime(this.reconnectTries);
 
-    showReconnectionDelayNotification(this._name, this.reconnectTries, waitTime);
+    if (this.reconnectTries > notificationThreshold) {
+      this._client.connectionEvent?.({ type: 'reconnecting', url: this._url, retries: this.reconnectTries });
+    }
     await wait(waitTime);
 
     // Check again after waiting - browser might have gone offline during the wait
@@ -458,7 +410,9 @@ export class WebsocketConnection {
       return;
     }
 
-    showReconnectingNotification(this._name, this.reconnectTries);
+    if (this.reconnectTries > notificationThreshold) {
+      this._client.connectionEvent?.({ type: 'reconnecting', url: this._url, retries: this.reconnectTries });
+    }
     this.connect();
   };
 
@@ -495,15 +449,13 @@ export class WebsocketConnection {
   private handleClose = async (event: CloseEvent) => {
     this.clearAllTimers();
 
-    WebsocketConnection._logger?.log?.('info', 'ws-close', {
+    this._client.connectionEvent?.({
+      type: 'close',
       url: this._url,
-      uriApis: Array.from(this._listeners)
-        .filter(([_, listener]) => 'uri' in listener)
-        .map(([_, listener]) => (listener as { uri: string }).uri),
       code: event.code,
       reason: event.reason,
       wasClean: event.wasClean,
-      online: typeof window !== 'undefined' && window.navigator.onLine
+      subscriptions: this._listeners.size
     });
 
     const shouldReconnect = isReconnectableCloseCode(event.code);
@@ -528,32 +480,25 @@ export class WebsocketConnection {
     if (typeof window !== 'undefined') {
       window.addEventListener('offline', this.handleOffline);
     }
-    closeSnackbar(`${this._name}-offline`);
-    closeSnackbar(`${this._name}-reconnecting`);
-
-    if (this.reconnectTries > RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD) {
-      enqueueSnackbar(`reconnected to ${this._name}.`, {
-        key: `${this._name}-online`,
-        variant: 'success',
-        preventDuplicate: true
-      });
-    }
 
     this.reconnectTries = 0;
 
     const socket = this._socket;
     if (socket) {
       this._listeners.forEach((listener) => listener.onOpen?.());
-      WebsocketConnection._logger?.log?.('info', 'ws-on-open', {
+
+      this._client.connectionEvent?.({
+        type: 'open',
         url: this._url,
-        uriApis: Array.from(this._listeners)
-          .filter(([_, listener]) => 'uri' in listener)
-          .map(([_, listener]) => (listener as { uri: string }).uri)
+        retries: this.reconnectTries,
+        uriApis: getSubscriptionUris(this._listeners)
       });
       this.cachedMessages.forEach((message) => socket.send(this.serializeMessage(message)));
     }
     this.cachedMessages = [];
-    this.schedulePing();
+    if (this._client.heartbeat.enabled) {
+      this.schedulePing();
+    }
   };
 
   /**
@@ -570,11 +515,10 @@ export class WebsocketConnection {
       const parsed: unknown = JSON.parse(event.data);
 
       if (!isValidIncomingMessage(parsed)) {
-        WebsocketConnection._logger?.log?.('error', 'ws-invalid-message', {
+        this._client.connectionEvent?.({
+          type: 'invalid-message',
           url: this._url,
-          uriApis: Array.from(this._listeners)
-            .filter(([_, listener]) => 'uri' in listener)
-            .map(([_, listener]) => (listener as { uri: string }).uri),
+          uriApis: getSubscriptionUris(this._listeners),
           message: parsed
         });
         this._listeners.forEach((listener) => listener.onError({ type: 'transport', event }));
@@ -583,16 +527,18 @@ export class WebsocketConnection {
 
       if (parsed.uri === 'ping') {
         this.clearPongTimeout();
-        this.schedulePing();
+        if (this._client.heartbeat.enabled) {
+          this.schedulePing();
+        }
         return;
       }
 
       if (isErrorMethod(parsed.method)) {
-        WebsocketConnection._logger?.log?.('error', 'ws-message-error', {
+        this._client.connectionEvent?.({
+          type: 'message-error',
           url: this._url,
-          uriApis: Array.from(this._listeners)
-            .filter(([_, listener]) => 'uri' in listener)
-            .map(([_, listener]) => (listener as { uri: string }).uri),
+          uri: parsed.uri,
+          uriApis: getSubscriptionUris(this._listeners),
           message: parsed
         });
         this.forEachMatchingListener(parsed.uri, (listener) => listener.onMessageError!({ type: 'server', message: parsed }));
@@ -607,11 +553,10 @@ export class WebsocketConnection {
         }
       });
     } catch (error) {
-      WebsocketConnection._logger?.log?.('error', 'ws-message-parse-error', {
+      this._client.connectionEvent?.({
+        type: 'parse-error',
         url: this._url,
-        uriApis: Array.from(this._listeners)
-          .filter(([_, listener]) => 'uri' in listener)
-          .map(([_, listener]) => (listener as { uri: string }).uri),
+        uriApis: getSubscriptionUris(this._listeners),
         message: event.data,
         error: error
       });
@@ -627,11 +572,11 @@ export class WebsocketConnection {
    */
   private handleError = (event: Event) => {
     this._listeners.forEach((listener) => listener.onError({ type: 'transport', event }));
-    WebsocketConnection._logger?.log?.('error', 'ws-error', {
+
+    this._client.connectionEvent?.({
+      type: 'error',
       url: this._url,
-      uriApis: Array.from(this._listeners)
-        .filter(([_, listener]) => 'uri' in listener)
-        .map(([_, listener]) => (listener as { uri: string }).uri),
+      uriApis: getSubscriptionUris(this._listeners),
       event: event
     });
   };
@@ -694,9 +639,12 @@ export class WebsocketConnection {
    */
   private handleSendMessage = (message: SendMessage<string, string, any>) => {
     if (this._socket?.readyState === WebSocket.OPEN) {
-      WebsocketConnection._logger?.log?.('info', `ws-${message.method}: ${message.uri}`, {
+      this._client.connectionEvent?.({
+        type: 'send-message',
         url: this._url,
-        message: message.body
+        uri: message.uri,
+        body: message.body,
+        method: message.method
       });
       this._socket.send(this.serializeMessage(message));
       return;
@@ -715,7 +663,7 @@ export class WebsocketConnection {
    */
   private sendPing = () => {
     if (!isSocketOnline(this._socket)) return;
-    this._socket?.send(createPingMessage());
+    this._socket?.send(this.serializeMessage(createPingMessage()));
     this.schedulePongTimeout();
   };
 
@@ -729,20 +677,19 @@ export class WebsocketConnection {
 
   /**
    * Schedules a timeout to detect missing pong. If no pong arrives within
-   * {@link HEARTBEAT_CONFIG.PONG_TIMEOUT_MS}, force-closes the socket to trigger reconnection.
+   * configured pong timeout, force-closes the socket to trigger reconnection.
    */
   private schedulePongTimeout = () => {
     this.clearPongTimeout();
+    const pongTimeoutMs = this._client.heartbeat.pongTimeoutMs;
     this.pongTimeOut = setTimeout(() => {
-      WebsocketConnection._logger?.log?.('info', 'ws-pong-timeout', {
-        url: this._url,
-        uriApis: Array.from(this._listeners)
-          .filter(([_, listener]) => 'uri' in listener)
-          .map(([_, listener]) => (listener as { uri: string }).uri)
+      this._client.connectionEvent?.({
+        type: 'pong-timeout',
+        url: this._url
       });
       this.teardownSocket();
       this.attemptReconnection();
-    }, HEARTBEAT_CONFIG.PONG_TIMEOUT_MS);
+    }, pongTimeoutMs);
   };
 
   /**
@@ -761,7 +708,11 @@ export class WebsocketConnection {
    * @returns JSON string for WebSocket send
    */
   private serializeMessage = (message: SendMessage<string, string, any>): string => {
-    return JSON.stringify({ ...message, correlation: uuidv4() });
+    const transformMessagePayload = this._client.transformMessagePayload;
+    if (transformMessagePayload) {
+      message = transformMessagePayload(message);
+    }
+    return JSON.stringify(message);
   };
 
   /**

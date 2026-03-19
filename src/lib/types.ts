@@ -1,5 +1,12 @@
+import { RECONNECTION_CONFIG } from './constants';
 import { WebsocketMessageApi } from './WebsocketMessageApi';
 import { WebsocketSubscriptionApi } from './WebsocketSubscriptionApi';
+
+/**
+ * Type definitions for the WebSocket connection system.
+ *
+ * @module types
+ */
 
 /**
  * WebSocket connection ready states.
@@ -39,8 +46,6 @@ export interface SendMessage<TMethod = string, TUri = string, TBody = unknown> {
   uri?: TUri;
   /** Optional message body/payload */
   body?: TBody;
-  /** Correlation ID for tracking messages (automatically generated) */
-  correlation?: string;
 }
 
 /**
@@ -138,9 +143,9 @@ export interface WebsocketSubscriptionOptions<TData = unknown, TBody = unknown> 
   onError?: (error: WebsocketTransportError) => void;
 
   /**
-   * A callback function called when an error occurs with a subscription or message.
+   * Callback invoked when a server error message is received for this subscription.
    *
-   * @param event - The error event object.
+   * @param error - Server error with parsed message body (`error.type === 'server'`, `error.message` contains the incoming message)
    */
   onMessageError?: (error: WebsocketServerError<TBody>) => void;
   /**
@@ -227,6 +232,7 @@ export interface WebsocketListener {
   hasWaitingUri?(uri: string): boolean;
   /** Message listeners: delivers a response for a pending request */
   deliverMessage?(uri: string, data: unknown): void;
+  readonly type: 'subscription' | 'message';
 }
 
 export type WebsocketMessageApiPublic = Pick<
@@ -258,7 +264,12 @@ export interface WebsocketSubscriptionStore<TData = unknown> {
   serverError: WebsocketServerError<unknown> | undefined;
 }
 
-/** Creates the initial state for a WebsocketSubscriptionStore. */
+/**
+ * Creates the initial state for a {@link WebsocketSubscriptionStore}.
+ *
+ * @template TData - The type of data in the store's `message` field
+ * @returns A new store with default values (message: undefined, subscribed: false, etc.)
+ */
 export function createInitialWebsocketSubscriptionStore<TData = unknown>(): WebsocketSubscriptionStore<TData> {
   return {
     message: undefined,
@@ -270,4 +281,179 @@ export function createInitialWebsocketSubscriptionStore<TData = unknown>(): Webs
     messageError: undefined,
     serverError: undefined
   };
+}
+
+/**
+ * Optional custom logger for WebSocket connection events.
+ * Set via {@link WebsocketConfig.setCustomLogger}.
+ */
+export interface WebsocketLogger {
+  /** Logs connection events (e.g. ws-connect, ws-close, ws-error, ws-reconnect) */
+  // log?(level: 'debug' | 'info' | 'warn' | 'error', message: string, context?: Record<string, unknown>): void;
+  /** Called when max retry attempts exceeded; use to trigger token refresh or other recovery */
+  connectionEvents?: (event: WebsocketLoggerConnectionEvent) => void;
+}
+
+/** Union of all connection event types passed to {@link WebsocketClientOverrides.connectionEvent}. */
+
+export type WebsocketLoggerConnectionEvent =
+  | WebsocketLoggerCloseEvent
+  | WebsocketLoggerOpenEvent
+  | WebsocketLoggerMessageEvent
+  | WebsocketLoggerErrorEvent
+  | WebsocketLoggerReconnectingEvent
+  | WebsocketLoggerPongTimeoutEvent
+  | WebsocketLoggerInvalidMessageEvent
+  | WebsocketLoggerMessageErrorEvent
+  | WebsocketLoggerParseErrorEvent
+  | WebsocketLoggerSendMessageEvent
+  | WebsocketLoggerCleanupEvent;
+
+/** @internal */
+interface WebsocketLoggerCloseEvent {
+  /** WebSocket connection closed */
+  type: 'close';
+  url: string;
+  code: number;
+  reason: string;
+  wasClean: boolean;
+  subscriptions: number;
+}
+/** @internal */
+interface WebsocketLoggerCleanupEvent {
+  /** Connection cleaned up (no listeners remain) */
+  type: 'cleanup';
+  url: string;
+}
+
+/** @internal */
+interface WebsocketLoggerOpenEvent {
+  /** WebSocket connection opened or connecting */
+  type: 'open' | 'connect';
+  url: string;
+  retries: number;
+  uriApis: string[];
+}
+/** @internal */
+interface WebsocketLoggerMessageEvent {
+  /** Incoming message received */
+  type: 'message';
+  uri: string;
+  url: string;
+  body: unknown;
+  method: string;
+}
+/** @internal */
+interface WebsocketLoggerSendMessageEvent {
+  /** Outgoing message sent */
+  type: 'send-message';
+  uri?: string;
+  url: string;
+  body: unknown;
+  method?: string;
+}
+
+/** @internal */
+interface WebsocketLoggerErrorEvent {
+  /** WebSocket transport error */
+  type: 'error';
+  event: unknown;
+  url: string;
+  uriApis: string[];
+}
+/** @internal */
+interface WebsocketLoggerParseErrorEvent {
+  /** Failed to parse incoming message JSON */
+  type: 'parse-error';
+  error: unknown;
+  url: string;
+  uriApis: string[];
+  message: unknown;
+}
+
+/** @internal */
+interface WebsocketLoggerMessageErrorEvent {
+  /** Server sent error message (method: error, conflict, or exception) */
+  type: 'message-error';
+  uri: string;
+  url: string;
+  uriApis: string[];
+  message: unknown;
+}
+/** @internal */
+interface WebsocketLoggerReconnectingEvent {
+  /** Reconnection attempt or max retries exceeded */
+  type: 'reconnecting' | 'max-retries-exceeded';
+  retries: number;
+  url: string;
+}
+
+/** @internal */
+interface WebsocketLoggerInvalidMessageEvent {
+  /** Incoming message missing required structure (e.g. uri) */
+  type: 'invalid-message';
+  url: string;
+  uriApis: string[];
+  message: unknown;
+}
+
+/** @internal */
+interface WebsocketLoggerPongTimeoutEvent {
+  /** No pong received within heartbeat timeout */
+  type: 'pong-timeout';
+  url: string;
+}
+
+export type ReconnectionConfig = typeof RECONNECTION_CONFIG;
+
+/** Heartbeat (ping/pong) configuration */
+export interface HeartbeatConfig {
+  /** Whether to send ping messages and expect pong responses. Default: true */
+  enabled: boolean;
+  /** Time in ms to wait for a pong before considering the connection dead. Default: 10000 */
+  pongTimeoutMs: number;
+}
+
+/** Overrides for the global WebSocket configuration. All fields are optional. */
+export interface WebsocketClientOverrides {
+  /** Maximum number of reconnection attempts before stopping and showing a permanent error. Prevents infinite retries on dead endpoints (CPU wake-ups, battery drain). ~10 attempts ≈ 12 minutes at phase 3 (90s interval). User can retry manually. */
+  maxRetryAttempts?: number;
+  /** Number of failed reconnection attempts before showing user notifications. Prevents notification spam during brief network interruptions. */
+  notificationThreshold?: number;
+  /** Initial delay (in ms) when server closes with 1013 Try Again Later. The server explicitly asks to wait before reconnecting. */
+  tryAgainLaterDelayMs?: number;
+  /** Delay durations (in milliseconds) for each reconnection phase. */
+  delays?: {
+    firstPhase?: number;
+    secondPhase?: number;
+    thirdPhase?: number;
+  };
+  /** Threshold values that determine when to transition between reconnection phases. */
+  phaseThresholds?: {
+    first?: number;
+    second?: number;
+  };
+  /** Override connection cleanup delay when no listeners remain */
+  connectionCleanupDelayMs?: number;
+  /** Default timeout in ms when waiting for a message response. Used by WebsocketMessageApi */
+  messageResponseTimeoutMs?: number;
+  /** Override ping/pong heartbeat behavior */
+  heartbeat?: Partial<HeartbeatConfig>;
+
+  transformMessagePayload?: (payload: SendMessage<string, string, unknown>) => SendMessage<string, string, unknown>;
+  /**
+   * Callback for connection event logging. Receives events such as:
+   * - `{ type: 'open' | 'connect', url, retries, uriApis }`
+   * - `{ type: 'close', url, code, reason, wasClean, subscriptions }`
+   * - `{ type: 'reconnecting' | 'max-retries-exceeded', url, retries }`
+   * - `{ type: 'message-error', url, uri, uriApis, message }`
+   * - `{ type: 'invalid-message', url, uriApis, message }`
+   * - `{ type: 'parse-error', url, uriApis, message, error }`
+   * - `{ type: 'send-message', url, uri?, body, method? }`
+   * - `{ type: 'cleanup', url }`
+   * - `{ type: 'pong-timeout', url }`
+   *
+   * @param event - The connection event
+   */
+  connectionEvent?: (event: WebsocketLoggerConnectionEvent) => void;
 }

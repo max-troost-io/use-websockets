@@ -79,7 +79,13 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown> implemen
   private _hookRemovalTimeout: ReturnType<typeof setTimeout> | undefined;
   private _sendToConnection: SendToConnectionFn | null = null;
   private _pendingMessages: SendMessage<string, string, TBody>[] = [];
+  public readonly type = 'subscription';
 
+  /**
+   * Creates a new WebsocketSubscriptionApi.
+   *
+   * @param options - Configuration options (url, uri, key, callbacks, etc.)
+   */
   constructor(options: WebsocketSubscriptionOptions<TData, TBody>) {
     this._options = { ...DEFAULT_URI_OPTIONS, ...options };
   }
@@ -94,6 +100,7 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown> implemen
     return this._options.uri;
   }
 
+  /** WebSocket URL for Datadog tracking. */
   public get url(): string {
     return this._options.url;
   }

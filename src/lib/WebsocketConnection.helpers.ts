@@ -8,11 +8,20 @@
  * @module WebsocketConnection.helpers
  */
 
-import { closeSnackbar, enqueueSnackbar } from 'notistack';
-import { createElement } from 'react';
 import { RECONNECTION_CONFIG, WEBSOCKET_CLOSE_CODES } from './constants';
-import { v4 as uuidv4 } from 'uuid';
-import { IncomingWebsocketMessage } from './types';
+import { IncomingWebsocketMessage, ReconnectionConfig, SendMessage, WebsocketListener } from './types';
+
+/**
+ * Extracts URIs from subscription listeners for connection event logging.
+ *
+ * @param listeners - Map of listeners keyed by their unique key
+ * @returns Array of URIs from subscription listeners (message APIs are excluded)
+ * @internal
+ */
+export const getSubscriptionUris = (listeners: Map<string, WebsocketListener>): string[] =>
+  Array.from(listeners)
+    .filter(([, listener]) => 'uri' in listener)
+    .map(([, listener]) => (listener as { uri: string }).uri);
 
 /**
  * Calculates the wait time before attempting to reconnect based on the number of failed attempts.
@@ -23,19 +32,20 @@ import { IncomingWebsocketMessage } from './types';
  * - **Third phase** (attempts 10+): 90 seconds — long backoff to reduce load on dead endpoints
  *
  * @param tries - The number of reconnection attempts made so far
+ * @param reconnectionConfig - Optional reconnection config (defaults to global config)
  * @returns Wait time in milliseconds before next reconnection attempt
  *
  * @see {@link RECONNECTION_CONFIG} - Phase thresholds and delay values
  * @internal
  */
-export const reconnectWaitTime = (tries: number) => {
-  if (tries < RECONNECTION_CONFIG.PHASE_THRESHOLDS.FIRST) {
-    return RECONNECTION_CONFIG.DELAYS.FIRST_PHASE;
+export const reconnectWaitTime = (tries: number, reconnectionConfig: ReconnectionConfig = RECONNECTION_CONFIG) => {
+  if (tries < reconnectionConfig.PHASE_THRESHOLDS.FIRST) {
+    return reconnectionConfig.DELAYS.FIRST_PHASE;
   }
-  if (tries < RECONNECTION_CONFIG.PHASE_THRESHOLDS.SECOND) {
-    return RECONNECTION_CONFIG.DELAYS.SECOND_PHASE;
+  if (tries < reconnectionConfig.PHASE_THRESHOLDS.SECOND) {
+    return reconnectionConfig.DELAYS.SECOND_PHASE;
   }
-  return RECONNECTION_CONFIG.DELAYS.THIRD_PHASE;
+  return reconnectionConfig.DELAYS.THIRD_PHASE;
 };
 
 /**
@@ -115,92 +125,6 @@ export const isSocketOnline = (socket?: WebSocket): boolean => {
 };
 
 /**
- * Shows a notification that reconnection will be attempted after a delay.
- *
- * Only shown when `reconnectTries > NOTIFICATION_THRESHOLD` to avoid
- * spamming users during brief network interruptions.
- *
- * @param name - Display name for the connection (e.g. pathname from URL)
- * @param reconnectTries - Number of reconnection attempts so far
- * @param waitTime - Wait time in ms before the next attempt
- *
- * @see {@link RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD}
- * @internal
- */
-export const showReconnectionDelayNotification = (name: string, reconnectTries: number, waitTime: number): void => {
-  if (reconnectTries > RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD) {
-    enqueueSnackbar(`trying to reconnect to ${name} in ${waitTime / 1000} seconds.`, {
-      key: `${name}-offline`,
-      variant: 'error',
-      preventDuplicate: true
-    });
-  }
-};
-
-/**
- * Shows a permanent error notification when max retry attempts are exceeded.
- *
- * Includes a "Retry" button that calls {@link WebsocketConnection.resetRetriesAndReconnect}.
- * Uses a stable snackbar key to prevent duplicate notifications.
- *
- * @param name - Display name for the connection
- * @param onRetry - Callback invoked when the user clicks Retry (resets retries and reconnects)
- *
- * @see {@link RECONNECTION_CONFIG.MAX_RETRY_ATTEMPTS}
- * @internal
- */
-export const showMaxRetriesExceededNotification = (name: string, onRetry: () => void): void => {
-  const key = `${name}-max-retries`;
-  enqueueSnackbar(`Connection to ${name} failed after maximum retries.`, {
-    key,
-    variant: 'error',
-    preventDuplicate: true,
-    action: (snackbarKey) =>
-      createElement(
-        'button',
-        {
-          onClick: () => {
-            onRetry();
-            closeSnackbar(snackbarKey);
-          },
-          style: {
-            marginLeft: 8,
-            padding: '4px 12px',
-            background: 'rgba(255,255,255,0.2)',
-            border: 'none',
-            borderRadius: 4,
-            color: 'inherit',
-            cursor: 'pointer',
-            fontSize: 14,
-            fontWeight: 500
-          }
-        },
-        'Retry'
-      )
-  });
-};
-
-/**
- * Shows a notification that reconnection is in progress.
- *
- * Only shown when `reconnectTries > NOTIFICATION_THRESHOLD`.
- *
- * @param name - Display name for the connection
- * @param reconnectTries - Number of reconnection attempts so far
- *
- * @internal
- */
-export const showReconnectingNotification = (name: string, reconnectTries: number): void => {
-  if (reconnectTries > RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD) {
-    enqueueSnackbar(`trying to reconnect to ${name}...`, {
-      key: `${name}-reconnecting`,
-      variant: 'info',
-      preventDuplicate: true
-    });
-  }
-};
-
-/**
  * Creates a ping message for the WebSocket heartbeat mechanism.
  *
  * Format: `{ method: 'post', uri: 'ping', body: timestamp, correlation: uuid }`.
@@ -210,13 +134,12 @@ export const showReconnectingNotification = (name: string, reconnectTries: numbe
  *
  * @internal
  */
-export const createPingMessage = (): string => {
-  return JSON.stringify({
+export const createPingMessage = (): SendMessage<string, string, number> => {
+  return {
     method: 'post',
     uri: 'ping',
-    body: Date.now(),
-    correlation: uuidv4()
-  });
+    body: Date.now()
+  }
 };
 
 /**

@@ -1,3 +1,11 @@
+import { HeartbeatConfig } from "./types";
+
+/**
+ * WebSocket constants and configuration.
+ *
+ * @module constants
+ */
+
 /**
  * WebSocket close codes used for connection state detection.
  *
@@ -83,12 +91,21 @@ export const RECONNECTION_CONFIG = {
  * for efficient resource cleanup while avoiding unnecessary reconnections for
  * quick re-registrations. Different delays are used for production vs test environments.
  */
-export const CONNECTION_CLEANUP_DELAY = {
-  /** Production delay: 3 seconds to allow for quick re-registrations */
-  PRODUCTION_MS: 3000,
-  /** Test delay: 10ms for faster test execution */
-  TEST_MS: 10
-} as const;
+// export const CONNECTION_CLEANUP_DELAY = {
+//   /** Production delay: 3 seconds to allow for quick re-registrations */
+//   PRODUCTION_MS: 3000,
+//   /** Test delay: 10ms for faster test execution */
+//   TEST_MS: 10
+// } as const;
+export const CONNECTION_CLEANUP_DELAY_MS = 3000;
+
+/**
+ * Delay in milliseconds before reconnecting after teardown.
+ *
+ * Used in {@link WebsocketConnection.teardownAndReconnect} to allow cleanup
+ * to complete before establishing a new connection.
+ */
+export const TEARDOWN_RECONNECT_DELAY_MS = 1000;
 
 /**
  * Delay in milliseconds before removing a WebSocket URI API initiator.
@@ -132,3 +149,14 @@ export const DEFAULT_URI_OPTIONS: {
  * Used by {@link WebsocketMessageApi} when no explicit timeout is provided.
  */
 export const DEFAULT_MESSAGE_RESPONSE_TIMEOUT_MS = 10000;
+
+
+/**
+ * Default heartbeat configuration for WebSocket connections.
+ *
+ * Enables ping/pong with the default timeout from {@link HEARTBEAT_CONFIG}.
+ */
+export const DEFAULT_HEARTBEAT_CONFIG: HeartbeatConfig = {
+  enabled: true,
+  pongTimeoutMs: HEARTBEAT_CONFIG.PONG_TIMEOUT_MS
+};

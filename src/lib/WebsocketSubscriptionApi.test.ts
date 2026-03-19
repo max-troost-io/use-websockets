@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { WebsocketSubscriptionApi } from './WebsocketSubscriptionApi';
-import { WebsocketTransportError, WebsocketSubscriptionOptions } from './types';
+import { WebsocketServerError, WebsocketTransportError, WebsocketSubscriptionOptions } from './types';
 import { INITIATOR_REMOVAL_DELAY_MS } from './constants';
 
 describe('WebsocketSubscriptionApi', () => {
@@ -896,6 +896,60 @@ describe('WebsocketSubscriptionApi', () => {
       const transportError: WebsocketTransportError = { type: 'transport', event: errorEvent };
 
       expect(() => api.onError(transportError)).not.toThrow();
+    });
+  });
+
+  describe('onMessageError', () => {
+    it('should call onMessageError callback if provided', () => {
+      const onMessageErrorSpy = vi.fn();
+      const api = new WebsocketSubscriptionApi({
+        url: mockUrl,
+        uri: mockUri,
+        key: mockKey,
+        onMessageError: onMessageErrorSpy
+      });
+
+      const serverError: WebsocketServerError = {
+        type: 'server',
+        message: { uri: mockUri, method: 'error', body: { code: 'CONFLICT' } }
+      };
+      api.onMessageError(serverError);
+
+      expect(onMessageErrorSpy).toHaveBeenCalledWith(serverError);
+    });
+
+    it('should reset pendingSubscription when server error received', () => {
+      const api = new WebsocketSubscriptionApi({
+        url: mockUrl,
+        uri: mockUri,
+        key: mockKey
+      });
+
+      api.onOpen();
+      api.subscribe();
+      expect(api.store.state.pendingSubscription).toBe(true);
+
+      api.onMessageError({
+        type: 'server',
+        message: { uri: mockUri, method: 'error', body: {} }
+      });
+
+      expect(api.store.state.pendingSubscription).toBe(false);
+    });
+
+    it('should not throw if onMessageError callback is not provided', () => {
+      const api = new WebsocketSubscriptionApi({
+        url: mockUrl,
+        uri: mockUri,
+        key: mockKey
+      });
+
+      const serverError: WebsocketServerError = {
+        type: 'server',
+        message: { uri: mockUri, method: 'error', body: {} }
+      };
+
+      expect(() => api.onMessageError(serverError)).not.toThrow();
     });
   });
 

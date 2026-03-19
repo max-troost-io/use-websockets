@@ -31,7 +31,6 @@ export default defineConfig({
         "react/jsx-runtime",
         "@tanstack/react-store",
         "@tanstack/store",
-        "notistack",
         "uuid",
         "fast-equals",
         "usehooks-ts",
