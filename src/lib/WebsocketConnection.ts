@@ -200,7 +200,7 @@ export class WebsocketConnection {
       this._listeners.delete(existing.key);
     }
     this._client.connectionEvent?.({
-      type: "remove-listener-from-connection",
+      type: "connection:remove-listener",
       url: this._url,
       uri: listener.uri,
       key: listener.key,

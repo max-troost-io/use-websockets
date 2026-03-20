@@ -420,7 +420,7 @@ interface WebsocketLoggerInvalidMessageEvent {
 /** @internal */
 interface WebsocketLoggerRemoveListenerFromConnectionEvent {
   /** Listener removed from connection */
-  type: "remove-listener-from-connection";
+  type: "connection:remove-listener";
   url: string;
   uri?: string;
   key: string;
@@ -430,13 +430,17 @@ interface WebsocketLoggerRemoveListenerFromConnectionEvent {
 /** @internal */
 interface WebsocketLoggerSubscriptionEvent {
   /** Subscription disconnect attempt */
-  type: "subscription:reset" | "subscription:disconnect-attempt";
+  type:
+    | "subscription:reset"
+    | "subscription:disconnect-attempt"
+    | "subscription:unsubscribe"
+    | "subscription:unmount-hook";
   uri: string;
   key: string;
 }
 interface WebsocketLoggerSubscriptionSendMessageEvent {
   /** Subscription disconnect attempt */
-  type: "subscription:send-message";
+  type: "subscription:send-message"|"subscription:queue-message";
   uri: string;
   key: string;
   message: SendMessage<string, string, unknown>;

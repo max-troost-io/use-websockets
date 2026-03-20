@@ -326,7 +326,11 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
       pendingSubscription: false,
       message: undefined,
     }));
-
+    this._client.connectionEvent?.({
+      type: "subscription:unsubscribe",
+      uri: this.uri,
+      key: this.key,
+    });
     this._sendOrQueue({ uri: this.uri, method: "unsubscribe" });
   };
 
@@ -405,6 +409,11 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
         this._state.setState((prev) => ({ ...prev, connected: false }));
         this.unsubscribe();
         onRemove();
+        this._client.connectionEvent?.({
+          type: "subscription:unmount-hook",
+          uri: this.uri,
+          key: this.key,
+        });
       }
     }, INITIATOR_REMOVAL_DELAY_MS);
   }
@@ -431,6 +440,12 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
         message,
       });
     } else {
+      this._client.connectionEvent?.({
+        type: "subscription:queue-message",
+        uri: this.uri,
+        key: this.key,
+        message,
+      });
       this._pendingMessages.push(message);
     }
   }
