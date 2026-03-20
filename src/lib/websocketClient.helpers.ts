@@ -38,7 +38,7 @@ export const createWebsocketSubscriptionApi = <TData = unknown, TBody = unknown>
   if (listener) {
     return listener;
   }
-  const uriApi = new WebsocketSubscriptionApi(options);
+  const uriApi = new WebsocketSubscriptionApi(options, client);
   client.addListener(uriApi);
   return uriApi;
 };

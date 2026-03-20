@@ -1,6 +1,6 @@
-import { RECONNECTION_CONFIG } from './constants';
-import { WebsocketMessageApi } from './WebsocketMessageApi';
-import { WebsocketSubscriptionApi } from './WebsocketSubscriptionApi';
+import { RECONNECTION_CONFIG } from "./constants";
+import { WebsocketMessageApi } from "./WebsocketMessageApi";
+import { WebsocketSubscriptionApi } from "./WebsocketSubscriptionApi";
 
 /**
  * Type definitions for the WebSocket connection system.
@@ -26,7 +26,7 @@ export enum ReadyState {
   /** Connection is in the process of closing */
   CLOSING = 2,
   /** Connection is closed or couldn't be opened */
-  CLOSED = 3
+  CLOSED = 3,
 }
 
 /**
@@ -55,7 +55,9 @@ export interface SendMessage<TMethod = string, TUri = string, TBody = unknown> {
  * replacing the previous EventTarget/CustomEvent indirection with a direct,
  * type-safe function call.
  */
-export type SendToConnectionFn = (message: SendMessage<string, string, unknown>) => void;
+export type SendToConnectionFn = (
+  message: SendMessage<string, string, unknown>
+) => void;
 
 /**
  * Structure of incoming WebSocket messages.
@@ -81,7 +83,7 @@ export interface IncomingWebsocketMessage<TBody = unknown> {
  * @template TBody - The type of the error body payload
  */
 export interface WebsocketServerError<TBody = unknown> {
-  readonly type: 'server';
+  readonly type: "server";
   readonly message: IncomingWebsocketMessage<TBody>;
 }
 
@@ -90,7 +92,7 @@ export interface WebsocketServerError<TBody = unknown> {
  * Contains the raw Event from the WebSocket 'error' handler.
  */
 export interface WebsocketTransportError {
-  readonly type: 'transport';
+  readonly type: "transport";
   readonly event: Event;
 }
 
@@ -102,7 +104,10 @@ export interface WebsocketTransportError {
  * @template TData - The type of data received from the WebSocket
  * @template TBody - The type of message body sent to the WebSocket
  */
-export interface WebsocketSubscriptionOptions<TData = unknown, TBody = unknown> {
+export interface WebsocketSubscriptionOptions<
+  TData = unknown,
+  TBody = unknown
+> {
   /** The base URL of the WebSocket connection. */
   url: string;
   /** The URI path for this subscription. */
@@ -126,14 +131,21 @@ export interface WebsocketSubscriptionOptions<TData = unknown, TBody = unknown> 
    * @param uri - The URI path that was subscribed to
    * @param body - The body that was sent with the subscription
    */
-  onSubscribe?: (props: { uri: string; body?: TBody; uriApi: WebsocketSubscriptionApi<TData, TBody> }) => void;
+  onSubscribe?: (props: {
+    uri: string;
+    body?: TBody;
+    uriApi: WebsocketSubscriptionApi<TData, TBody>;
+  }) => void;
   /**
    * Callback invoked when a message is received for this URI.
    *
    * @param data - The message data received from the WebSocket
    * @param uriApi - The URI API instance that received the message
    */
-  onMessage?: (props: { data: TData; uriApi: WebsocketSubscriptionApi<TData, TBody> }) => void;
+  onMessage?: (props: {
+    data: TData;
+    uriApi: WebsocketSubscriptionApi<TData, TBody>;
+  }) => void;
   /**
    * Callback invoked when a WebSocket error occurs.
    *
@@ -232,17 +244,20 @@ export interface WebsocketListener {
   hasWaitingUri?(uri: string): boolean;
   /** Message listeners: delivers a response for a pending request */
   deliverMessage?(uri: string, data: unknown): void;
-  readonly type: 'subscription' | 'message';
+  readonly type: "subscription" | "message";
 }
 
 export type WebsocketMessageApiPublic = Pick<
   WebsocketMessageApi,
-  'sendMessage' | 'sendMessageNoWait' | 'reset' | 'url' | 'key' | 'isEnabled'
+  "sendMessage" | "sendMessageNoWait" | "reset" | "url" | "key" | "isEnabled"
 >;
 
-export type WebsocketSubscriptionApiPublic<TData = unknown, TBody = unknown> = Pick<
+export type WebsocketSubscriptionApiPublic<
+  TData = unknown,
+  TBody = unknown
+> = Pick<
   WebsocketSubscriptionApi<TData, TBody>,
-  'reset' | 'url' | 'key' | 'isEnabled' | 'store'
+  "reset" | "url" | "key" | "isEnabled" | "store"
 >;
 
 export interface WebsocketSubscriptionStore<TData = unknown> {
@@ -270,7 +285,9 @@ export interface WebsocketSubscriptionStore<TData = unknown> {
  * @template TData - The type of data in the store's `message` field
  * @returns A new store with default values (message: undefined, subscribed: false, etc.)
  */
-export function createInitialWebsocketSubscriptionStore<TData = unknown>(): WebsocketSubscriptionStore<TData> {
+export function createInitialWebsocketSubscriptionStore<
+  TData = unknown
+>(): WebsocketSubscriptionStore<TData> {
   return {
     message: undefined,
     subscribed: false,
@@ -279,7 +296,7 @@ export function createInitialWebsocketSubscriptionStore<TData = unknown>(): Webs
     receivedAt: undefined,
     connected: false,
     messageError: undefined,
-    serverError: undefined
+    serverError: undefined,
   };
 }
 
@@ -307,12 +324,15 @@ export type WebsocketLoggerConnectionEvent =
   | WebsocketLoggerMessageErrorEvent
   | WebsocketLoggerParseErrorEvent
   | WebsocketLoggerSendMessageEvent
-  | WebsocketLoggerCleanupEvent;
+  | WebsocketLoggerCleanupEvent
+  | WebsocketLoggerRemoveListenerFromConnectionEvent
+  | WebsocketLoggerSubscriptionEvent
+  | WebsocketLoggerSubscriptionSendMessageEvent;
 
 /** @internal */
 interface WebsocketLoggerCloseEvent {
   /** WebSocket connection closed */
-  type: 'close';
+  type: "close";
   url: string;
   code: number;
   reason: string;
@@ -322,14 +342,14 @@ interface WebsocketLoggerCloseEvent {
 /** @internal */
 interface WebsocketLoggerCleanupEvent {
   /** Connection cleaned up (no listeners remain) */
-  type: 'cleanup';
+  type: "cleanup";
   url: string;
 }
 
 /** @internal */
 interface WebsocketLoggerOpenEvent {
   /** WebSocket connection opened or connecting */
-  type: 'open' | 'connect';
+  type: "open" | "connect";
   url: string;
   retries: number;
   uriApis: string[];
@@ -337,7 +357,7 @@ interface WebsocketLoggerOpenEvent {
 /** @internal */
 interface WebsocketLoggerMessageEvent {
   /** Incoming message received */
-  type: 'message';
+  type: "message";
   uri: string;
   url: string;
   body: unknown;
@@ -346,7 +366,7 @@ interface WebsocketLoggerMessageEvent {
 /** @internal */
 interface WebsocketLoggerSendMessageEvent {
   /** Outgoing message sent */
-  type: 'send-message';
+  type: "send-message";
   uri?: string;
   url: string;
   body: unknown;
@@ -356,7 +376,7 @@ interface WebsocketLoggerSendMessageEvent {
 /** @internal */
 interface WebsocketLoggerErrorEvent {
   /** WebSocket transport error */
-  type: 'error';
+  type: "error";
   event: unknown;
   url: string;
   uriApis: string[];
@@ -364,7 +384,7 @@ interface WebsocketLoggerErrorEvent {
 /** @internal */
 interface WebsocketLoggerParseErrorEvent {
   /** Failed to parse incoming message JSON */
-  type: 'parse-error';
+  type: "parse-error";
   error: unknown;
   url: string;
   uriApis: string[];
@@ -374,7 +394,7 @@ interface WebsocketLoggerParseErrorEvent {
 /** @internal */
 interface WebsocketLoggerMessageErrorEvent {
   /** Server sent error message (method: error, conflict, or exception) */
-  type: 'message-error';
+  type: "message-error";
   uri: string;
   url: string;
   uriApis: string[];
@@ -383,7 +403,7 @@ interface WebsocketLoggerMessageErrorEvent {
 /** @internal */
 interface WebsocketLoggerReconnectingEvent {
   /** Reconnection attempt or max retries exceeded */
-  type: 'reconnecting' | 'max-retries-exceeded';
+  type: "reconnecting" | "max-retries-exceeded";
   retries: number;
   url: string;
 }
@@ -391,16 +411,41 @@ interface WebsocketLoggerReconnectingEvent {
 /** @internal */
 interface WebsocketLoggerInvalidMessageEvent {
   /** Incoming message missing required structure (e.g. uri) */
-  type: 'invalid-message';
+  type: "invalid-message";
   url: string;
   uriApis: string[];
   message: unknown;
 }
 
 /** @internal */
+interface WebsocketLoggerRemoveListenerFromConnectionEvent {
+  /** Listener removed from connection */
+  type: "remove-listener-from-connection";
+  url: string;
+  uri?: string;
+  key: string;
+  uriApis?: string[];
+}
+
+/** @internal */
+interface WebsocketLoggerSubscriptionEvent {
+  /** Subscription disconnect attempt */
+  type: "subscription:reset" | "subscription:disconnect-attempt";
+  uri: string;
+  key: string;
+}
+interface WebsocketLoggerSubscriptionSendMessageEvent {
+  /** Subscription disconnect attempt */
+  type: "subscription:send-message";
+  uri: string;
+  key: string;
+  message: SendMessage<string, string, unknown>;
+}
+
+/** @internal */
 interface WebsocketLoggerPongTimeoutEvent {
   /** No pong received within heartbeat timeout */
-  type: 'pong-timeout';
+  type: "pong-timeout";
   url: string;
 }
 
@@ -440,7 +485,9 @@ export interface WebsocketClientOverrides {
   /** Override ping/pong heartbeat behavior */
   heartbeat?: Partial<HeartbeatConfig>;
 
-  transformMessagePayload?: (payload: SendMessage<string, string, unknown>) => SendMessage<string, string, unknown>;
+  transformMessagePayload?: (
+    payload: SendMessage<string, string, unknown>
+  ) => SendMessage<string, string, unknown>;
   /**
    * Callback for connection event logging. Receives events such as:
    * - `{ type: 'open' | 'connect', url, retries, uriApis }`

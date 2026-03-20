@@ -114,7 +114,7 @@ export const TEARDOWN_RECONNECT_DELAY_MS = 1000;
  * unsubscribing and cleaning up. This prevents rapid subscribe/unsubscribe cycles
  * that could occur during React component re-renders or fast user interactions.
  */
-export const INITIATOR_REMOVAL_DELAY_MS = 200;
+export const INITIATOR_REMOVAL_DELAY_MS = 1000;
 
 /**
  * Configuration for WebSocket heartbeat (ping/pong) mechanism.

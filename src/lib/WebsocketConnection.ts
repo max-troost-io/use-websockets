@@ -199,6 +199,13 @@ export class WebsocketConnection {
       existing.setSendToConnection(null);
       this._listeners.delete(existing.key);
     }
+    this._client.connectionEvent?.({
+      type: "remove-listener-from-connection",
+      url: this._url,
+      uri: listener.uri,
+      key: listener.key,
+      uriApis: getSubscriptionUris(this._listeners),
+    });
     clearTimeout(this.closeConnectionTimeOut);
     this.scheduleConnectionCleanup();
   };

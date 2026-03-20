@@ -8,9 +8,9 @@
  * @module WebsocketSubscriptionApi
  */
 
-import { Store } from '@tanstack/react-store';
-import { deepEqual } from 'fast-equals';
-import { DEFAULT_URI_OPTIONS, INITIATOR_REMOVAL_DELAY_MS } from './constants';
+import { Store } from "@tanstack/react-store";
+import { deepEqual } from "fast-equals";
+import { DEFAULT_URI_OPTIONS, INITIATOR_REMOVAL_DELAY_MS } from "./constants";
 import {
   createInitialWebsocketSubscriptionStore,
   SendMessage,
@@ -19,8 +19,10 @@ import {
   WebsocketServerError,
   WebsocketSubscriptionOptions,
   WebsocketSubscriptionStore,
-  WebsocketTransportError
-} from './types';
+  WebsocketTransportError,
+} from "./types";
+import { getSubscriptionUris } from "./WebsocketConnection.helpers";
+import { WebsocketClient } from "./WebsocketClient";
 
 /**
  * Manages a single WebSocket URI endpoint with subscription lifecycle and message handling.
@@ -69,25 +71,31 @@ import {
  * @see {@link useWebsocketSubscription} - React hook
  * @see {@link WebsocketConnection} - Connection manager
  */
-export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown> implements WebsocketListener {
+export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
+  implements WebsocketListener
+{
   private _options: WebsocketSubscriptionOptions<TData, TBody>;
-  private _state: Store<WebsocketSubscriptionStore<TData>> = new Store<WebsocketSubscriptionStore<TData>>(
-    createInitialWebsocketSubscriptionStore<TData>()
-  );
+  private _state: Store<WebsocketSubscriptionStore<TData>> = new Store<
+    WebsocketSubscriptionStore<TData>
+  >(createInitialWebsocketSubscriptionStore<TData>());
   private _registeredHooks: Set<string> = new Set();
   private _disconnectTimeout: ReturnType<typeof setTimeout> | undefined;
   private _hookRemovalTimeout: ReturnType<typeof setTimeout> | undefined;
   private _sendToConnection: SendToConnectionFn | null = null;
   private _pendingMessages: SendMessage<string, string, TBody>[] = [];
-  public readonly type = 'subscription';
-
+  public readonly type = "subscription";
+  private _client: WebsocketClient;
   /**
    * Creates a new WebsocketSubscriptionApi.
    *
    * @param options - Configuration options (url, uri, key, callbacks, etc.)
    */
-  constructor(options: WebsocketSubscriptionOptions<TData, TBody>) {
+  constructor(
+    options: WebsocketSubscriptionOptions<TData, TBody>,
+    client: WebsocketClient
+  ) {
     this._options = { ...DEFAULT_URI_OPTIONS, ...options };
+    this._client = client;
   }
 
   /** Unique key identifier for this WebSocket URI API. */
@@ -146,7 +154,7 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown> implemen
     const updatedOptions: WebsocketSubscriptionOptions<TData, TBody> = {
       ...DEFAULT_URI_OPTIONS,
       ...this._options,
-      ...options
+      ...options,
     };
 
     if (deepEqual(this._options, updatedOptions)) return;
@@ -188,7 +196,9 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown> implemen
     this._clearPendingTimeouts();
     this._registeredHooks.add(id);
     if (this._registeredHooks.size > 1) {
-      console.warn(`the uri ${this.uri} has more than one initiator, multiple initiators could cause unexpected behavior`);
+      console.warn(
+        `the uri ${this.uri} has more than one initiator, multiple initiators could cause unexpected behavior`
+      );
     }
   };
 
@@ -218,9 +228,19 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown> implemen
   public disconnect = (onRemoveFromSocket: () => void): void => {
     this._clearPendingTimeouts();
     this.unsubscribe();
+    this._client.connectionEvent?.({
+      type: "subscription:disconnect-attempt",
+      uri: this.uri,
+      key: this.key,
+    });
     this._disconnectTimeout = setTimeout(() => {
       this._disconnectTimeout = undefined;
-      this._state.setState((prev) => ({ ...prev, connected: false, subscribed: false, pendingSubscription: false }));
+      this._state.setState((prev) => ({
+        ...prev,
+        connected: false,
+        subscribed: false,
+        pendingSubscription: false,
+      }));
       onRemoveFromSocket();
     }, INITIATOR_REMOVAL_DELAY_MS);
   };
@@ -234,13 +254,17 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown> implemen
    */
   public reset = (): void => {
     if (!this._state.state.connected) return;
-
+    this._client.connectionEvent?.({
+      type: "subscription:reset",
+      uri: this.uri,
+      key: this.key,
+    });
     this._state.setState((prev) => ({
       ...prev,
       connected: false,
       subscribed: false,
       pendingSubscription: false,
-      message: undefined
+      message: undefined,
     }));
     this._clearPendingTimeouts();
   };
@@ -256,7 +280,11 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown> implemen
     if (!this.isEnabled) return;
 
     this._clearPendingTimeouts();
-    const messageWithUri = { ...message, uri: this.uri, method: message.method ?? this._options.method ?? 'post' };
+    const messageWithUri = {
+      ...message,
+      uri: this.uri,
+      method: message.method ?? this._options.method ?? "post",
+    };
     this._sendOrQueue(messageWithUri);
   };
 
@@ -275,10 +303,14 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown> implemen
       ...prev,
       subscribed: true,
       pendingSubscription: true,
-      subscribedAt: Date.now()
+      subscribedAt: Date.now(),
     }));
-    this._sendOrQueue({ body, uri: this.uri, method: 'subscribe' });
-    this._options.onSubscribe?.({ uri: this.uri, body: this._options.body, uriApi: this });
+    this._sendOrQueue({ body, uri: this.uri, method: "subscribe" });
+    this._options.onSubscribe?.({
+      uri: this.uri,
+      body: this._options.body,
+      uriApi: this,
+    });
   };
 
   /**
@@ -288,9 +320,14 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown> implemen
    */
   public unsubscribe = (): void => {
     if (!this._state.state.subscribed) return;
-    this._state.setState((prev) => ({ ...prev, subscribed: false, pendingSubscription: false, message: undefined }));
+    this._state.setState((prev) => ({
+      ...prev,
+      subscribed: false,
+      pendingSubscription: false,
+      message: undefined,
+    }));
 
-    this._sendOrQueue({ uri: this.uri, method: 'unsubscribe' });
+    this._sendOrQueue({ uri: this.uri, method: "unsubscribe" });
   };
 
   /**
@@ -314,7 +351,7 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown> implemen
       ...prev,
       message: data,
       pendingSubscription: false,
-      receivedAt: Date.now()
+      receivedAt: Date.now(),
     }));
     this._options.onMessage?.({ data, uriApi: this });
   };
@@ -341,7 +378,11 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown> implemen
    * Resets subscription state to ensure a fresh subscription on reconnect.
    */
   public onClose = (event: CloseEvent): void => {
-    this._state.setState((prev) => ({ ...prev, subscribed: false, pendingSubscription: false }));
+    this._state.setState((prev) => ({
+      ...prev,
+      subscribed: false,
+      pendingSubscription: false,
+    }));
     this._options.onClose?.(event);
   };
 
@@ -370,13 +411,25 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown> implemen
 
   private _flushPendingMessages(callback: SendToConnectionFn): void {
     if (this._pendingMessages.length === 0) return;
-    this._pendingMessages.forEach((msg) => callback({ ...msg, uri: this.uri, method: msg.method ?? this._options.method ?? 'post' }));
+    this._pendingMessages.forEach((msg) =>
+      callback({
+        ...msg,
+        uri: this.uri,
+        method: msg.method ?? this._options.method ?? "post",
+      })
+    );
     this._pendingMessages = [];
   }
 
   private _sendOrQueue(message: SendMessage<string, string, TBody>): void {
     if (this._sendToConnection) {
       this._sendToConnection(message);
+      this._client.connectionEvent?.({
+        type: "subscription:send-message",
+        uri: this.uri,
+        key: this.key,
+        message,
+      });
     } else {
       this._pendingMessages.push(message);
     }
