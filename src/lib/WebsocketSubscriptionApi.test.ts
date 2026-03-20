@@ -1021,6 +1021,32 @@ describe("WebsocketSubscriptionApi", () => {
 
       expect(() => api.onClose(closeEvent)).not.toThrow();
     });
+
+    it("should clear connected so a later onOpen sends subscribe again", () => {
+      const api = new WebsocketSubscriptionApi(
+        {
+          url: mockUrl,
+          uri: mockUri,
+          key: mockKey,
+        },
+        client
+      );
+
+      const sendSpy = vi.fn();
+      api.setSendToConnection(sendSpy);
+
+      api.onOpen();
+      expect(api.store.state.connected).toBe(true);
+      sendSpy.mockClear();
+
+      api.onClose(new CloseEvent("close"));
+      expect(api.store.state.connected).toBe(false);
+
+      api.onOpen();
+      expect(sendSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ method: "subscribe" })
+      );
+    });
   });
 
   describe("reset", () => {

@@ -114,14 +114,14 @@ function useWebsocketLifecycle(
 
   useIsomorphicLayoutEffect(() => {
     if (enabled !== false) {
-      const connection = client.addConnection(listener.url, url);
+      const connection = client.addConnection(url, url);
       connection.addListener(listener);
     } else {
       listener.disconnect(() =>
         removeWebsocketListenerFromConnection(client, listener)
       );
     }
-  }, [enabled, listener, client]);
+  }, [enabled, listener, client, url]);
 
   useIsomorphicLayoutEffect(() => {
     const connection = client.getConnection(url);
@@ -251,13 +251,13 @@ export function useWebsocketSubscription<TData = unknown, TBody = unknown>(
     () => createWebsocketSubscriptionApi(client, options.key, options)
   );
 
-  useWebsocketLifecycle(subscriptionApi, options.url, options.enabled);
-
   const stableOptions = useDeepCompareMemoize(options);
 
   useIsomorphicLayoutEffect(() => {
     subscriptionApi.options = stableOptions;
   }, [stableOptions, subscriptionApi]);
+
+  useWebsocketLifecycle(subscriptionApi, options.url, options.enabled);
 
   return subscriptionApi;
 }

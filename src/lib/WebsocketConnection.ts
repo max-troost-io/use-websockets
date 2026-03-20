@@ -473,6 +473,8 @@ export class WebsocketConnection {
    * Restart, 1013 Try Again Later, 1006 Abnormal Closure, and other server-initiated codes.
    * Reconnection only occurs when listeners are still registered. Shows user notifications
    * after {@link RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD} failed attempts.
+   * Notifies all listeners via {@link WebsocketListener.onClose} before reconnecting so
+   * subscription state (e.g. {@code connected}) resets and {@code onOpen} can subscribe again.
    * Cleans up the connection if no listeners remain. Logs the close event via the custom logger if configured.
    *
    * @param event - The WebSocket close event containing code, reason, and whether the close was clean
@@ -488,6 +490,8 @@ export class WebsocketConnection {
       wasClean: event.wasClean,
       subscriptions: this._listeners.size,
     });
+
+    this._listeners.forEach((listener) => listener.onClose(event));
 
     const shouldReconnect = isReconnectableCloseCode(event.code);
     const hasRegisteredApis = this._listeners.size > 0;
@@ -730,6 +734,11 @@ export class WebsocketConnection {
         type: "pong-timeout",
         url: this._url,
       });
+      const event = new CloseEvent("pong-timeout", {
+        code: WEBSOCKET_CLOSE_CODES.ABNORMAL_CLOSURE,
+        wasClean: false,
+      });
+      this._listeners.forEach((listener) => listener.onClose(event));
       this.teardownSocket();
       this.attemptReconnection();
     }, pongTimeoutMs);

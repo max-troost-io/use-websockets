@@ -21,7 +21,6 @@ import {
   WebsocketSubscriptionStore,
   WebsocketTransportError,
 } from "./types";
-import { getSubscriptionUris } from "./WebsocketConnection.helpers";
 import { WebsocketClient } from "./WebsocketClient";
 
 /**
@@ -377,13 +376,16 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
   };
 
   /**
-   * Called by WebsocketConnection when the WebSocket connection closes.
+   * Called by WebsocketConnection when the WebSocket connection closes (transport close,
+   * heartbeat timeout, or browser offline).
    *
-   * Resets subscription state to ensure a fresh subscription on reconnect.
+   * Clears {@link WebsocketSubscriptionStore.connected}, subscription flags, and pending state
+   * so the next {@link onOpen} runs {@link subscribe} again after reconnect.
    */
   public onClose = (event: CloseEvent): void => {
     this._state.setState((prev) => ({
       ...prev,
+      connected: false,
       subscribed: false,
       pendingSubscription: false,
     }));
