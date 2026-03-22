@@ -8,8 +8,8 @@
  * @module WebsocketMessageApi
  */
 
-import { WebsocketClient } from './WebsocketClient';
-import { INITIATOR_REMOVAL_DELAY_MS } from './constants';
+import { WebsocketClient } from "./WebsocketClient";
+import { INITIATOR_REMOVAL_DELAY_MS } from "./constants";
 import {
   SendMessage,
   SendMessageOptions,
@@ -17,8 +17,8 @@ import {
   WebsocketListener,
   WebsocketMessageOptions,
   WebsocketServerError,
-  WebsocketTransportError
-} from './types';
+  WebsocketTransportError,
+} from "./types";
 
 interface PendingRequest<TData = unknown> {
   resolve: (value: TData) => void;
@@ -77,7 +77,7 @@ export class WebsocketMessageApi implements WebsocketListener {
   private _registeredHooks: Set<string> = new Set();
   private _hookRemovalTimeout: ReturnType<typeof setTimeout> | undefined;
   private _client: WebsocketClient;
-  public readonly type = 'message';
+  public readonly type = "message";
 
   /**
    * Creates a new WebsocketMessageApi.
@@ -91,7 +91,7 @@ export class WebsocketMessageApi implements WebsocketListener {
     this._options = {
       enabled: true,
       responseTimeoutMs: defaultTimeout,
-      ...options
+      ...options,
     };
   }
 
@@ -220,19 +220,22 @@ export class WebsocketMessageApi implements WebsocketListener {
    * await api.sendMessage('/api/command', 'post', { action: 'refresh' });
    * await api.sendMessage('/api/command', 'post', { action: 'refresh' }, { timeout: 5000 });
    */
-  public sendMessage<TData = unknown, TBody = unknown>(
+  public sendMessage = <TData = unknown, TBody = unknown>(
     uri: string,
     method: string,
     body?: TBody,
     options?: SendMessageOptions
-  ): Promise<TData> {
+  ): Promise<TData> => {
     if (!this.isEnabled) {
-      return Promise.reject(new Error('WebsocketMessageApi is disabled'));
+      return Promise.reject(new Error("WebsocketMessageApi is disabled"));
     }
 
     this._cancelPendingForUri(uri);
 
-    const timeoutMs = options?.timeout ?? this._options.responseTimeoutMs ?? this._client.messageResponseTimeoutMs;
+    const timeoutMs =
+      options?.timeout ??
+      this._options.responseTimeoutMs ??
+      this._client.messageResponseTimeoutMs;
 
     return new Promise<TData>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
@@ -245,13 +248,13 @@ export class WebsocketMessageApi implements WebsocketListener {
       this._pendingByUri.set(uri, {
         resolve: (v: unknown) => resolve(v as TData),
         reject,
-        timeoutId
+        timeoutId,
       });
 
       const message: SendMessage<string, string, TBody> = { uri, method, body };
       this._sendOrQueue<TBody>(message);
     });
-  }
+  };
 
   /**
    * Sends a message without waiting for a response (fire-and-forget).
@@ -263,12 +266,16 @@ export class WebsocketMessageApi implements WebsocketListener {
    * @example
    * api.sendMessageNoWait('/api/log', 'post', { event: 'click' });
    */
-  public sendMessageNoWait<TBody = unknown>(uri: string, method: string, body?: TBody): void {
+  public sendMessageNoWait = <TBody = unknown>(
+    uri: string,
+    method: string,
+    body?: TBody
+  ): void => {
     if (!this.isEnabled) return;
 
     const message: SendMessage<string, string, TBody> = { uri, method, body };
     this._sendOrQueue<TBody>(message);
-  }
+  };
 
   /** @inheritdoc */
   public onError = (error: WebsocketTransportError): void => {
@@ -320,7 +327,9 @@ export class WebsocketMessageApi implements WebsocketListener {
     this._pendingMessages = [];
   }
 
-  private _sendOrQueue<TBody = unknown>(message: SendMessage<string, string, TBody>): void {
+  private _sendOrQueue<TBody = unknown>(
+    message: SendMessage<string, string, TBody>
+  ): void {
     if (this._sendToConnection) {
       this._sendToConnection(message);
     } else {
@@ -333,14 +342,16 @@ export class WebsocketMessageApi implements WebsocketListener {
     if (pending) {
       clearTimeout(pending.timeoutId);
       this._pendingByUri.delete(uri);
-      pending.reject(new Error(`WebSocket request overwritten for URI: ${uri}`));
+      pending.reject(
+        new Error(`WebSocket request overwritten for URI: ${uri}`)
+      );
     }
   }
 
   private _cancelAllPending(): void {
     this._pendingByUri.forEach((pending) => {
       clearTimeout(pending.timeoutId);
-      pending.reject(new Error('WebSocket connection closed'));
+      pending.reject(new Error("WebSocket connection closed"));
     });
     this._pendingByUri.clear();
   }
