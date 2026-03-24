@@ -351,7 +351,7 @@ export class WebsocketMessageApi implements WebsocketListener {
   private _cancelAllPending(): void {
     this._pendingByUri.forEach((pending) => {
       clearTimeout(pending.timeoutId);
-      pending.reject(new Error("WebSocket connection closed"));
+      pending.reject(console.error("WebSocket connection closed"));
     });
     this._pendingByUri.clear();
   }
