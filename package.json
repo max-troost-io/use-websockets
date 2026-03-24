@@ -1,6 +1,6 @@
 {
   "name": "@maxtroost/use-websocket",
-  "version": "1.1.10",
+  "version": "1.1.11",
   "description": "A robust WebSocket connection management package for React applications with automatic reconnection, heartbeat monitoring, URI-based message routing, and React integration via TanStack Store.",
   "type": "module",
   "main": "./dist/index.cjs",
