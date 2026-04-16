@@ -74,9 +74,9 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
   implements WebsocketListener
 {
   private _options: WebsocketSubscriptionOptions<TData, TBody>;
-  private _state: Store<WebsocketSubscriptionStore<TData>> = new Store<
-    WebsocketSubscriptionStore<TData>
-  >(createInitialWebsocketSubscriptionStore<TData>());
+  private _state: Store<WebsocketSubscriptionStore<TData, TBody>> = new Store<
+    WebsocketSubscriptionStore<TData, TBody>
+  >(createInitialWebsocketSubscriptionStore<TData, TBody>());
   private _registeredHooks: Set<string> = new Set();
   private _disconnectTimeout: ReturnType<typeof setTimeout> | undefined;
   private _hookRemovalTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -128,7 +128,7 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
   }
 
   /** TanStack store containing subscription state (message, subscribed, connected, pendingSubscription, etc.). */
-  public get store(): Store<WebsocketSubscriptionStore<TData>> {
+  public get store(): Store<WebsocketSubscriptionStore<TData, TBody>> {
     return this._state;
   }
 
@@ -239,6 +239,7 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
         connected: false,
         subscribed: false,
         pendingSubscription: false,
+        body: undefined,
       }));
       onRemoveFromSocket();
     }, INITIATOR_REMOVAL_DELAY_MS);
@@ -264,6 +265,7 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
       subscribed: false,
       pendingSubscription: false,
       message: undefined,
+      body: undefined,
     }));
     this._clearPendingTimeouts();
   };
@@ -355,6 +357,7 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
       message: data,
       pendingSubscription: false,
       receivedAt: Date.now(),
+      body: this._options.body,
     }));
     this._options.onMessage?.({ data, uriApi: this });
   };
@@ -388,6 +391,7 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
       connected: false,
       subscribed: false,
       pendingSubscription: false,
+      body: undefined,
     }));
     this._options.onClose?.(event);
   };

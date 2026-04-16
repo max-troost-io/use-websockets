@@ -260,7 +260,7 @@ export type WebsocketSubscriptionApiPublic<
   "reset" | "url" | "key" | "isEnabled" | "store"
 >;
 
-export interface WebsocketSubscriptionStore<TData = unknown> {
+export interface WebsocketSubscriptionStore<TData = unknown, TBody = unknown> {
   message: TData | undefined;
   subscribed: boolean;
   /**
@@ -277,6 +277,7 @@ export interface WebsocketSubscriptionStore<TData = unknown> {
   connected: boolean;
   messageError: WebsocketTransportError | undefined;
   serverError: WebsocketServerError<unknown> | undefined;
+  body?: TBody;
 }
 
 /**
@@ -286,8 +287,9 @@ export interface WebsocketSubscriptionStore<TData = unknown> {
  * @returns A new store with default values (message: undefined, subscribed: false, etc.)
  */
 export function createInitialWebsocketSubscriptionStore<
-  TData = unknown
->(): WebsocketSubscriptionStore<TData> {
+  TData = unknown,
+  TBody = unknown
+>(): WebsocketSubscriptionStore<TData, TBody> {
   return {
     message: undefined,
     subscribed: false,
