@@ -48,8 +48,8 @@
   "author": "Max Troost",
   "license": "MIT",
   "dependencies": {
-    "@tanstack/react-store": "0.9.2",
-    "@tanstack/store": "0.9.2",
+    "@tanstack/react-store": "0.10.0",
+    "@tanstack/store": "0.10.0",
     "fast-equals": "6.0.0"
   },
   "peerDependencies": {

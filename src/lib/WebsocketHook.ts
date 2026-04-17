@@ -1,5 +1,5 @@
 import { useStore } from "@tanstack/react-store";
-import { Store } from "@tanstack/store";
+import { createStore, Store } from "@tanstack/store";
 import { deepEqual } from "fast-equals";
 import { useEffect, useId, useRef, useState } from "react";
 import { WebsocketMessageApi } from "./WebsocketMessageApi";
@@ -295,7 +295,7 @@ export const useWebsocketSubscriptionByKey = <TData = unknown>(key: string) => {
 
   const [fallbackStore] = useState<Store<WebsocketSubscriptionStore<TData>>>(
     () =>
-      new Store<WebsocketSubscriptionStore<TData>>(
+      createStore<WebsocketSubscriptionStore<TData, unknown>>(
         createInitialWebsocketSubscriptionStore<TData>()
       )
   );

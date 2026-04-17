@@ -8,7 +8,7 @@
  * @module WebsocketSubscriptionApi
  */
 
-import { Store } from "@tanstack/react-store";
+import { createStore, Store } from "@tanstack/react-store";
 import { deepEqual } from "fast-equals";
 import { DEFAULT_URI_OPTIONS, INITIATOR_REMOVAL_DELAY_MS } from "./constants";
 import {
@@ -74,7 +74,7 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
   implements WebsocketListener
 {
   private _options: WebsocketSubscriptionOptions<TData, TBody>;
-  private _state: Store<WebsocketSubscriptionStore<TData, TBody>> = new Store<
+  private _state: Store<WebsocketSubscriptionStore<TData, TBody>> = createStore<
     WebsocketSubscriptionStore<TData, TBody>
   >(createInitialWebsocketSubscriptionStore<TData, TBody>());
   private _registeredHooks: Set<string> = new Set();

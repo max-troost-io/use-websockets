@@ -8,17 +8,23 @@
  * @module WebsocketClient
  */
 
-import { Store } from '@tanstack/react-store';
+import { createStore, Store } from "@tanstack/react-store";
 import {
   CONNECTION_CLEANUP_DELAY_MS,
   DEFAULT_HEARTBEAT_CONFIG,
   DEFAULT_MESSAGE_RESPONSE_TIMEOUT_MS,
-  RECONNECTION_CONFIG
-} from './constants';
-import type { HeartbeatConfig, SendMessage, WebsocketClientOverrides, WebsocketListener, WebsocketLoggerConnectionEvent } from './types';
-import { WebsocketConnection } from './WebsocketConnection';
-import type { WebsocketMessageApi } from './WebsocketMessageApi';
-import type { WebsocketSubscriptionApi } from './WebsocketSubscriptionApi';
+  RECONNECTION_CONFIG,
+} from "./constants";
+import type {
+  HeartbeatConfig,
+  SendMessage,
+  WebsocketClientOverrides,
+  WebsocketListener,
+  WebsocketLoggerConnectionEvent,
+} from "./types";
+import { WebsocketConnection } from "./WebsocketConnection";
+import type { WebsocketMessageApi } from "./WebsocketMessageApi";
+import type { WebsocketSubscriptionApi } from "./WebsocketSubscriptionApi";
 
 /**
  * Global WebSocket configuration used by all WebsocketConnection instances.
@@ -41,7 +47,9 @@ export class WebsocketClient {
    *
    * One connection per key. Managed by {@link addConnection} and {@link removeConnection}.
    */
-  private _connections = new Store<Map<string, WebsocketConnection>>(new Map());
+  private _connections = createStore<Map<string, WebsocketConnection>>(
+    new Map()
+  );
 
   /**
    * Global map of active WebSocket listeners (subscription and message APIs), keyed by API key.
@@ -50,7 +58,7 @@ export class WebsocketClient {
    * Managed by {@link createWebsocketSubscriptionApi}, {@link createWebsocketMessageApi},
    * and {@link removeWebsocketListenerFromConnection}.
    */
-  private _listeners = new Store<Map<string, WebsocketListener>>(new Map());
+  private _listeners = createStore<Map<string, WebsocketListener>>(new Map());
 
   /** Maximum reconnection attempts before stopping. */
   public maxRetryAttempts: number;
@@ -75,9 +83,15 @@ export class WebsocketClient {
   /** Heartbeat (ping/pong) configuration. */
   public heartbeat: HeartbeatConfig;
   /** Optional transform for outgoing message payloads. */
-  public transformMessagePayload: ((payload: SendMessage<string, string, unknown>) => SendMessage<string, string, unknown>) | undefined;
+  public transformMessagePayload:
+    | ((
+        payload: SendMessage<string, string, unknown>
+      ) => SendMessage<string, string, unknown>)
+    | undefined;
   /** Optional callback for connection event logging. */
-  public connectionEvent: ((event: WebsocketLoggerConnectionEvent) => void) | undefined;
+  public connectionEvent:
+    | ((event: WebsocketLoggerConnectionEvent) => void)
+    | undefined;
 
   /**
    * Creates a new WebsocketClient with optional overrides.
@@ -97,25 +111,34 @@ export class WebsocketClient {
     messageResponseTimeoutMs,
     heartbeat,
     transformMessagePayload,
-    connectionEvent
+    connectionEvent,
   }: WebsocketClientOverrides) {
-    this.maxRetryAttempts = maxRetryAttempts ?? RECONNECTION_CONFIG.MAX_RETRY_ATTEMPTS;
-    this.notificationThreshold = notificationThreshold ?? RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD;
-    this.tryAgainLaterDelayMs = tryAgainLaterDelayMs ?? RECONNECTION_CONFIG.TRY_AGAIN_LATER_DELAY_MS;
+    this.maxRetryAttempts =
+      maxRetryAttempts ?? RECONNECTION_CONFIG.MAX_RETRY_ATTEMPTS;
+    this.notificationThreshold =
+      notificationThreshold ?? RECONNECTION_CONFIG.NOTIFICATION_THRESHOLD;
+    this.tryAgainLaterDelayMs =
+      tryAgainLaterDelayMs ?? RECONNECTION_CONFIG.TRY_AGAIN_LATER_DELAY_MS;
     this.delays = {
       firstPhase: delays?.firstPhase ?? RECONNECTION_CONFIG.DELAYS.FIRST_PHASE,
-      secondPhase: delays?.secondPhase ?? RECONNECTION_CONFIG.DELAYS.SECOND_PHASE,
-      thirdPhase: delays?.thirdPhase ?? RECONNECTION_CONFIG.DELAYS.THIRD_PHASE
+      secondPhase:
+        delays?.secondPhase ?? RECONNECTION_CONFIG.DELAYS.SECOND_PHASE,
+      thirdPhase: delays?.thirdPhase ?? RECONNECTION_CONFIG.DELAYS.THIRD_PHASE,
     };
     this.phaseThresholds = {
-      first: phaseThresholds?.first ?? RECONNECTION_CONFIG.PHASE_THRESHOLDS.FIRST,
-      second: phaseThresholds?.second ?? RECONNECTION_CONFIG.PHASE_THRESHOLDS.SECOND
+      first:
+        phaseThresholds?.first ?? RECONNECTION_CONFIG.PHASE_THRESHOLDS.FIRST,
+      second:
+        phaseThresholds?.second ?? RECONNECTION_CONFIG.PHASE_THRESHOLDS.SECOND,
     };
-    this.connectionCleanupDelayMs = connectionCleanupDelayMs ?? CONNECTION_CLEANUP_DELAY_MS;
-    this.messageResponseTimeoutMs = messageResponseTimeoutMs ?? DEFAULT_MESSAGE_RESPONSE_TIMEOUT_MS;
+    this.connectionCleanupDelayMs =
+      connectionCleanupDelayMs ?? CONNECTION_CLEANUP_DELAY_MS;
+    this.messageResponseTimeoutMs =
+      messageResponseTimeoutMs ?? DEFAULT_MESSAGE_RESPONSE_TIMEOUT_MS;
     this.heartbeat = {
       enabled: heartbeat?.enabled ?? DEFAULT_HEARTBEAT_CONFIG.enabled,
-      pongTimeoutMs: heartbeat?.pongTimeoutMs ?? DEFAULT_HEARTBEAT_CONFIG.pongTimeoutMs
+      pongTimeoutMs:
+        heartbeat?.pongTimeoutMs ?? DEFAULT_HEARTBEAT_CONFIG.pongTimeoutMs,
     };
     this.transformMessagePayload = transformMessagePayload ?? undefined;
 
@@ -156,16 +179,21 @@ export class WebsocketClient {
    */
   public getListener<TData = unknown, TBody = unknown>(
     key: string,
-    type: 'subscription'
+    type: "subscription"
   ): WebsocketSubscriptionApi<TData, TBody> | undefined;
-  public getListener(key: string, type: 'message'): WebsocketMessageApi | undefined;
+  public getListener(
+    key: string,
+    type: "message"
+  ): WebsocketMessageApi | undefined;
   public getListener<TData = unknown, TBody = unknown>(
     key: string,
-    type: 'subscription' | 'message'
+    type: "subscription" | "message"
   ): WebsocketSubscriptionApi<TData, TBody> | WebsocketMessageApi | undefined {
     const listener = this._listeners.state.get(key);
     if (listener && listener.type === type) {
-      return listener as WebsocketSubscriptionApi<TData, TBody> | WebsocketMessageApi;
+      return listener as
+        | WebsocketSubscriptionApi<TData, TBody>
+        | WebsocketMessageApi;
     }
     return undefined;
   }
