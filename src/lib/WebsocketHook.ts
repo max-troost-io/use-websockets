@@ -1,4 +1,4 @@
-import { useStore } from "@tanstack/react-store";
+import { useSelector } from "@tanstack/react-store";
 import { createStore, Store } from "@tanstack/store";
 import { deepEqual } from "fast-equals";
 import { useEffect, useId, useRef, useState } from "react";
@@ -405,10 +405,4 @@ export const useWebsocketMessage = (
  * @see {@link useWebsocketSubscription} - Creates a subscription and returns the store
  * @see {@link useWebsocketSubscriptionByKey} - Access a subscription store by key
  */
-export const useSelector = <
-  TStore extends WebsocketSubscriptionStore<unknown>,
-  TResult = unknown
->(
-  store: Store<TStore>,
-  selector: (state: TStore) => TResult
-) => useStore(store, selector);
+export const useSubscriptionSelector = useSelector
