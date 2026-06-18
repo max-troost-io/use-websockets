@@ -158,6 +158,23 @@ describe('WebsocketMessageApi', () => {
       await expect(promise).rejects.toThrow('WebSocket response timeout');
     });
 
+    it('should use updated response timeout after setResponseTimeoutMs', async () => {
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
+      api.setSendToConnection(mockSendToConnection);
+
+      api.setResponseTimeoutMs(2000);
+
+      const promise = api.sendMessage('/api/test', 'post');
+
+      vi.advanceTimersByTime(1999);
+      await Promise.resolve();
+      expect(mockSendToConnection).toHaveBeenCalled();
+
+      vi.advanceTimersByTime(1);
+
+      await expect(promise).rejects.toThrow('WebSocket response timeout');
+    });
+
     it('should queue messages when connection not yet set', async () => {
       const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey }, createMockClient());
 

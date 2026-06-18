@@ -110,6 +110,11 @@ export class WebsocketMessageApi implements WebsocketListener {
     return this._options.enabled ?? true;
   }
 
+  /** Updates the default response timeout for subsequent sendMessage calls. */
+  public setResponseTimeoutMs = (ms: number): void => {
+    this._options.responseTimeoutMs = ms;
+  };
+
   /**
    * Returns whether this API is waiting for a response for the given URI.
    *

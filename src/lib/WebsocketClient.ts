@@ -23,7 +23,7 @@ import type {
   WebsocketLoggerConnectionEvent,
 } from "./types";
 import { WebsocketConnection } from "./WebsocketConnection";
-import type { WebsocketMessageApi } from "./WebsocketMessageApi";
+import { WebsocketMessageApi } from "./WebsocketMessageApi";
 import type { WebsocketSubscriptionApi } from "./WebsocketSubscriptionApi";
 
 /**
@@ -144,6 +144,22 @@ export class WebsocketClient {
 
     this.connectionEvent = connectionEvent ?? undefined;
   }
+
+  /**
+   * Updates the default message response timeout and propagates it to all
+   * registered message APIs. Does not affect in-flight pending requests.
+   */
+  public setMessageResponseTimeoutMs = (ms: number): void => {
+    if (!Number.isFinite(ms) || ms <= 0) {
+      throw new RangeError("messageResponseTimeoutMs must be a positive number");
+    }
+    this.messageResponseTimeoutMs = ms;
+    this._listeners.state.forEach((listener) => {
+      if (listener.type === "message") {
+        (listener as WebsocketMessageApi).setResponseTimeoutMs(ms);
+      }
+    });
+  };
 
   /** Reconnects all active WebSocket connections. Use after auth/region change. */
   public reconnectAllConnections = () => {

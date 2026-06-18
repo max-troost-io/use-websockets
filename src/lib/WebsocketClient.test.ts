@@ -198,4 +198,57 @@ describe('WebsocketClient', () => {
       expect(() => client.reconnectAllConnections()).not.toThrow();
     });
   });
+
+  describe('setMessageResponseTimeoutMs', () => {
+    it('should update client messageResponseTimeoutMs', () => {
+      const client = new WebsocketClient({ messageResponseTimeoutMs: 10_000 });
+
+      client.setMessageResponseTimeoutMs(3000);
+
+      expect(client.messageResponseTimeoutMs).toBe(3000);
+    });
+
+    it('should reject non-positive or non-finite values', () => {
+      const client = new WebsocketClient({});
+
+      expect(() => client.setMessageResponseTimeoutMs(0)).toThrow(RangeError);
+      expect(() => client.setMessageResponseTimeoutMs(-1)).toThrow(RangeError);
+      expect(() => client.setMessageResponseTimeoutMs(Number.NaN)).toThrow(RangeError);
+      expect(() => client.setMessageResponseTimeoutMs(Number.POSITIVE_INFINITY)).toThrow(
+        RangeError
+      );
+    });
+
+    it('should propagate to all registered message listeners including explicit overrides', () => {
+      const client = new WebsocketClient({ messageResponseTimeoutMs: 10_000 });
+      const defaultMessageApi = new WebsocketMessageApi(
+        { url: mockUrl, key: 'default-key' },
+        client
+      );
+      const explicitMessageApi = new WebsocketMessageApi(
+        { url: mockUrl, key: 'explicit-key', responseTimeoutMs: 5000 },
+        client
+      );
+      const subscription = new WebsocketSubscriptionApi(
+        {
+          url: mockUrl,
+          uri: '/api/test',
+          key: mockKey
+        },
+        client
+      );
+
+      client.addListener(defaultMessageApi);
+      client.addListener(explicitMessageApi);
+      client.addListener(subscription);
+
+      const defaultTimeoutSpy = vi.spyOn(defaultMessageApi, 'setResponseTimeoutMs');
+      const explicitTimeoutSpy = vi.spyOn(explicitMessageApi, 'setResponseTimeoutMs');
+
+      client.setMessageResponseTimeoutMs(2000);
+
+      expect(defaultTimeoutSpy).toHaveBeenCalledWith(2000);
+      expect(explicitTimeoutSpy).toHaveBeenCalledWith(2000);
+    });
+  });
 });

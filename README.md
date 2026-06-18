@@ -255,6 +255,35 @@ const websocketClient = new WebsocketClient({
 });
 ```
 
+### Dev Console: Live Message Timeout
+
+Create the client in a dedicated file and pass it to `WebsocketClientProvider` as usual. In development, expose a narrow dev-console API — not the full client:
+
+```tsx
+// src/websocketClient.ts
+import {
+  WebsocketClient,
+  exposeWebsocketClientDevTools,
+} from "@maxtroost/use-websocket";
+
+export const websocketClient = new WebsocketClient({
+  messageResponseTimeoutMs: 10_000,
+});
+
+if (import.meta.env.DEV) {
+  exposeWebsocketClientDevTools(websocketClient);
+}
+```
+
+In the browser dev console:
+
+```js
+__websocketClientDev.setMessageResponseTimeoutMs(2000);
+__websocketClientDev.getMessageResponseTimeoutMs(); // 2000
+```
+
+This updates the client default and propagates to all registered message APIs. In-flight pending requests keep their original timeout; only subsequent `sendMessage` calls use the new value (unless overridden per call with `{ timeout }`).
+
 ### Auth Token in WebSocket URL
 
 When the WebSocket URL includes an auth token, pass the full URL to the hook. When the token changes, the hook automatically calls `replaceUrl` to reconnect with the new URL.
