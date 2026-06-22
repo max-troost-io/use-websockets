@@ -30,7 +30,7 @@ describe('websocketClientDevTools', () => {
 
     exposeWebsocketClientDevTools(client);
 
-    const devTools = (window as Window & Record<string, unknown>)[
+    const devTools = (window as unknown as Window & Record<string, unknown>)[
       WEBSOCKET_CLIENT_DEV_GLOBAL_KEY
     ] as {
       getMessageResponseTimeoutMs: () => number;
@@ -57,7 +57,7 @@ describe('websocketClientDevTools', () => {
     exposeWebsocketClientDevTools(client);
 
     expect(window).not.toHaveProperty('websocketClient');
-    expect((window as Window & Record<string, unknown>)[WEBSOCKET_CLIENT_DEV_GLOBAL_KEY]).not.toBe(
+    expect((window as unknown as Window & Record<string, unknown>)[WEBSOCKET_CLIENT_DEV_GLOBAL_KEY]).not.toBe(
       client
     );
   });
