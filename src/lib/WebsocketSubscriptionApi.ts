@@ -463,7 +463,11 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
     const bodyChanged = !deepEqual(previousOptions.body, updatedOptions.body);
     const becameEnabled = !previousOptions.enabled && updatedOptions.enabled;
 
-    if (bodyChanged || becameEnabled) {
+    // Only re-subscribe when already connected. When not connected, addListener → onOpen
+    // handles subscription once the socket opens, preventing a double-subscribe that
+    // occurs when the options effect queues a subscribe and addListener immediately
+    // flushes it AND calls onOpen on an already-open socket.
+    if ((bodyChanged || becameEnabled) && this._state.state.connected) {
       this.subscribe(updatedOptions.body);
     }
   }
