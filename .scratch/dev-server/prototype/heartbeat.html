@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PROTOTYPE — Heartbeat Scenario</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a;
+      --border: #2e3250; --text: #e2e8f0; --muted: #64748b;
+      --open: #22c55e; --connecting: #f59e0b; --closed: #ef4444;
+      --accent: #6366f1; --accent-dim: #3730a3;
+      --ping: #818cf8; --pong: #34d399; --stale: #f97316;
+      --btn: #2e3250; --btn-hover: #3d4369;
+    }
+    body { font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+      font-size:13px; background:var(--bg); color:var(--text);
+      height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+
+    /* shared */
+    .badge { display:inline-flex; align-items:center; gap:5px; padding:2px 9px;
+      border-radius:999px; font-size:11px; font-weight:600;
+      text-transform:uppercase; letter-spacing:.05em; }
+    .badge-dot { width:7px; height:7px; border-radius:50%; }
+    .badge.open { background:#14532d; color:var(--open); }
+    .badge.open .badge-dot { background:var(--open); }
+    .badge.stale { background:#431407; color:var(--stale); }
+    .badge.stale .badge-dot { background:var(--stale); animation:pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
+    .badge.closed { background:#450a0a; color:var(--closed); }
+    .badge.closed .badge-dot { background:var(--closed); }
+
+    .btn { padding:6px 14px; border-radius:6px; border:1px solid var(--border);
+      background:var(--btn); color:var(--text); cursor:pointer; font-size:12px;
+      font-weight:500; transition:background .12s; }
+    .btn:hover { background:var(--btn-hover); }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px; }
+    .card-label { font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+      color:var(--muted); font-weight:600; margin-bottom:10px; }
+    .stat { display:flex; flex-direction:column; gap:2px; }
+    .stat-label { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+    .stat-value { font-size:16px; font-weight:700; }
+    .toggle-row { display:flex; align-items:center; gap:10px; cursor:pointer; }
+    .toggle-track { width:36px; height:20px; border-radius:10px;
+      background:var(--btn); border:1px solid var(--border); position:relative; transition:background .15s; }
+    .toggle-track.on { background:var(--accent-dim); border-color:var(--accent); }
+    .toggle-knob { width:14px; height:14px; border-radius:50%;
+      background:var(--muted); position:absolute; top:2px; left:2px;
+      transition:transform .15s, background .15s; }
+    .toggle-track.on .toggle-knob { transform:translateX(16px); background:var(--accent); }
+    .log { font-family:'Fira Code',monospace; font-size:11px; line-height:1.7;
+      overflow-y:auto; flex:1; min-height:0; }
+    .log-entry { display:flex; gap:8px; }
+    .log-time { color:#475569; min-width:56px; }
+    .log-ev.ping { color:var(--ping); }
+    .log-ev.pong { color:var(--pong); }
+    .log-ev.miss { color:var(--stale); }
+    .log-ev.state { color:var(--open); }
+    .log-ev.closed { color:var(--closed); }
+
+    /* layout shell */
+    .shell { display:flex; flex:1; min-height:0; }
+    .sidebar { width:200px; flex-shrink:0; background:var(--surface);
+      border-right:1px solid var(--border); display:flex; flex-direction:column; }
+    .sidebar-nav { padding:12px; }
+    .sidebar-label { font-size:10px; text-transform:uppercase; letter-spacing:.1em;
+      color:var(--muted); font-weight:600; margin-bottom:8px; }
+    .nav-item { display:flex; align-items:center; gap:8px; padding:7px 8px;
+      border-radius:6px; font-size:12px; font-weight:500; color:var(--muted); }
+    .nav-item.active { background:var(--accent-dim); color:white; }
+    .nav-dot { width:7px; height:7px; border-radius:50%; background:currentColor; opacity:.4; flex-shrink:0; }
+    .nav-item.active .nav-dot { opacity:1; }
+    .sidebar-status { margin-top:auto; padding:12px; border-top:1px solid var(--border); }
+    .main { flex:1; display:flex; flex-direction:column; min-height:0; }
+    .main-header { padding:12px 20px; border-bottom:1px solid var(--border);
+      background:var(--surface); flex-shrink:0;
+      display:flex; align-items:center; justify-content:space-between; }
+    .main-header h2 { font-size:14px; font-weight:600; }
+    .main-body { flex:1; display:flex; flex-direction:column; padding:16px;
+      gap:12px; min-height:0; overflow-y:auto; }
+
+    .variant { display:none; flex:1; flex-direction:column; min-height:0; }
+    .variant.active { display:flex; }
+
+    /* ── VARIANT P — PIPELINE ────────────────────────────
+       Shows the ping→pong cycle as a horizontal progress pipeline.
+       Phases: IDLE → AWAITING PONG → (PONG or STALE)
+    ──────────────────────────────────────────────────── */
+    .pipeline { display:flex; gap:0; align-items:stretch; border-radius:8px; overflow:hidden;
+      border:1px solid var(--border); }
+    .pipe-seg { flex:1; display:flex; flex-direction:column; align-items:center;
+      justify-content:center; padding:10px 8px; gap:4px;
+      border-right:1px solid var(--border); background:var(--surface); transition:background .2s; }
+    .pipe-seg:last-child { border-right:none; }
+    .pipe-seg.active { background:var(--surface2); }
+    .pipe-seg.done { background:#0f2b1f; }
+    .pipe-seg.warn { background:#2b1a0f; }
+    .pipe-label { font-size:10px; font-weight:600; text-transform:uppercase;
+      letter-spacing:.08em; color:var(--muted); }
+    .pipe-seg.active .pipe-label { color:var(--text); }
+    .pipe-seg.done .pipe-label { color:var(--pong); }
+    .pipe-seg.warn .pipe-label { color:var(--stale); }
+    .pipe-value { font-size:18px; font-weight:700; color:var(--muted); }
+    .pipe-seg.active .pipe-value { color:var(--text); }
+    .pipe-seg.done .pipe-value { color:var(--pong); }
+    .pipe-seg.warn .pipe-value { color:var(--stale); }
+    /* interval progress bar under pipeline */
+    .prog-wrap { height:4px; background:var(--surface2); border-radius:2px; overflow:hidden; }
+    .prog-fill { height:100%; border-radius:2px; transition:width .95s linear; }
+    .prog-fill.interval { background:var(--ping); }
+    .prog-fill.timeout { background:var(--stale); }
+
+    /* ── VARIANT Q — COMPACT ────────────────────────────
+       Stats row + toggle + log. Same idiom as reconnection Y.
+    ──────────────────────────────────────────────────── */
+    /* nothing extra needed */
+
+    /* switcher */
+    .switcher { position:fixed; bottom:0; left:0; right:0; z-index:9999;
+      display:flex; align-items:center; justify-content:center; gap:8px;
+      padding:10px 16px; background:#0a0c14; border-top:1px solid #2e3250; }
+    .sw-label { font-size:11px; color:var(--muted); font-weight:600; margin-right:4px; }
+    .sw-btn { padding:5px 14px; border-radius:4px; border:1px solid var(--border);
+      background:var(--surface); color:var(--muted); cursor:pointer;
+      font-size:12px; font-weight:500; transition:all .12s; }
+    .sw-btn:hover { color:var(--text); }
+    .sw-btn.active { background:var(--accent-dim); border-color:var(--accent); color:white; }
+    .sw-desc { font-size:11px; color:var(--muted); margin-left:12px; }
+    body { padding-bottom:46px; }
+  </style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════
+     VARIANT P — PIPELINE
+     Ping→pong cycle shown as a live horizontal pipeline.
+     Phase bar shows: [Next ping in Xs] → [Ping sent · Awaiting pong Xs] → [✓ Pong] or [✗ Stale]
+════════════════════════════════════════════════════ -->
+<div class="variant active" id="v-P">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="sidebar-nav">
+        <div class="sidebar-label">Scenarios</div>
+        <div class="nav-item"><div class="nav-dot"></div>↺ Reconnection</div>
+        <div class="nav-item active"><div class="nav-dot"></div>♡ Heartbeat</div>
+        <div class="nav-item"><div class="nav-dot"></div>⚡ Online/Offline</div>
+      </div>
+      <div class="sidebar-status">
+        <div class="sidebar-label">Connection</div>
+        <span class="badge open" id="p-sidebar-badge"><span class="badge-dot"></span>Open</span>
+      </div>
+    </div>
+    <div class="main">
+      <div class="main-header">
+        <h2>♡ Heartbeat</h2>
+        <span class="badge open" id="p-header-badge"><span class="badge-dot"></span>Open</span>
+      </div>
+      <div class="main-body">
+
+        <!-- Pipeline visualization -->
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div class="card-label" style="margin-bottom:0">Heartbeat cycle</div>
+          <div class="pipeline">
+            <div class="pipe-seg active" id="p-phase-idle">
+              <span class="pipe-label">Next ping in</span>
+              <span class="pipe-value" id="p-idle-val">5s</span>
+            </div>
+            <div class="pipe-seg" id="p-phase-await">
+              <span class="pipe-label">Awaiting pong</span>
+              <span class="pipe-value" id="p-await-val">—</span>
+            </div>
+            <div class="pipe-seg" id="p-phase-result">
+              <span class="pipe-label" id="p-result-label">—</span>
+              <span class="pipe-value" id="p-result-val">—</span>
+            </div>
+          </div>
+          <div class="prog-wrap">
+            <div class="prog-fill interval" id="p-prog" style="width:0%"></div>
+          </div>
+        </div>
+
+        <!-- Stats + control -->
+        <div class="card" style="display:flex;gap:24px;align-items:center">
+          <div class="stat">
+            <span class="stat-label">Pings sent</span>
+            <span class="stat-value" id="p-pings">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Pongs received</span>
+            <span class="stat-value" id="p-pongs">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Missed pongs</span>
+            <span class="stat-value" id="p-misses" style="color:var(--muted)">0</span>
+          </div>
+          <div style="margin-left:auto">
+            <label class="toggle-row" onclick="pToggleIgnore()">
+              <div class="toggle-track" id="p-toggle"><div class="toggle-knob"></div></div>
+              <span id="p-toggle-label">Ignore heartbeat pings</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Event log -->
+        <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div class="card-label">Event log</div>
+          <div class="log" id="p-log"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════
+     VARIANT Q — COMPACT
+     Stats row with countdown timers + toggle + log.
+     Same idiom as reconnection Y — no pipeline visualization.
+════════════════════════════════════════════════════ -->
+<div class="variant" id="v-Q">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="sidebar-nav">
+        <div class="sidebar-label">Scenarios</div>
+        <div class="nav-item"><div class="nav-dot"></div>↺ Reconnection</div>
+        <div class="nav-item active"><div class="nav-dot"></div>♡ Heartbeat</div>
+        <div class="nav-item"><div class="nav-dot"></div>⚡ Online/Offline</div>
+      </div>
+      <div class="sidebar-status">
+        <div class="sidebar-label">Connection</div>
+        <span class="badge open" id="q-sidebar-badge"><span class="badge-dot"></span>Open</span>
+      </div>
+    </div>
+    <div class="main">
+      <div class="main-header">
+        <h2>♡ Heartbeat</h2>
+        <span class="badge open" id="q-header-badge"><span class="badge-dot"></span>Open</span>
+      </div>
+      <div class="main-body">
+
+        <!-- Stats row -->
+        <div class="card" style="display:flex;gap:32px">
+          <div class="stat">
+            <span class="stat-label">Next ping in</span>
+            <span class="stat-value" id="q-next-ping">5s</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Last pong</span>
+            <span class="stat-value" id="q-last-pong">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Pong timeout in</span>
+            <span class="stat-value" id="q-timeout" style="color:var(--muted)">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Ignoring pings</span>
+            <span class="stat-value" id="q-ignoring" style="color:var(--muted)">No</span>
+          </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="card">
+          <div class="card-label">Controls</div>
+          <label class="toggle-row" onclick="qToggleIgnore()">
+            <div class="toggle-track" id="q-toggle"><div class="toggle-knob"></div></div>
+            <span>Ignore heartbeat pings</span>
+          </label>
+          <p style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">
+            Server receives ping messages but sends no pong. After the pong timeout (10s),
+            the library declares the connection stale, closes, and triggers reconnection.
+          </p>
+        </div>
+
+        <!-- Event log -->
+        <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div class="card-label">Event log</div>
+          <div class="log" id="q-log"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- switcher -->
+<div class="switcher">
+  <span class="sw-label">PROTOTYPE</span>
+  <button class="sw-btn active" onclick="sw('P',this)">P — Pipeline</button>
+  <button class="sw-btn" onclick="sw('Q',this)">Q — Compact</button>
+  <span class="sw-desc" id="sw-desc">Ping→pong cycle shown as a live phase pipeline with progress bar</span>
+</div>
+
+
+<script>
+const PING_INTERVAL = 5;   // seconds (dev override; production = 40)
+const PONG_TIMEOUT  = 10;  // seconds
+
+const descriptions = {
+  P: 'Ping→pong cycle shown as a live phase pipeline with progress bar',
+  Q: 'Stats row with countdown timers — same idiom as reconnection scenario',
+};
+function sw(v, btn) {
+  document.querySelectorAll('.variant').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.sw-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('v-' + v).classList.add('active');
+  btn.classList.add('active');
+  document.getElementById('sw-desc').textContent = descriptions[v];
+}
+function now() {
+  return new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+function addLog(id, msg, cls='') {
+  const log = document.getElementById(id);
+  if (!log) return;
+  const e = document.createElement('div');
+  e.className = 'log-entry';
+  e.innerHTML = `<span class="log-time">${now()}</span><span class="log-ev ${cls}">${msg}</span>`;
+  log.appendChild(e);
+  log.scrollTop = log.scrollHeight;
+}
+function setBadge(id, cls, label) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'badge ' + cls;
+  el.innerHTML = `<span class="badge-dot"></span>${label}`;
+}
+
+// ── VARIANT P — pipeline ──────────────────────────────
+let pIgnore = false, pPings = 0, pPongs = 0, pMisses = 0;
+let pIdleRemain = PING_INTERVAL, pAwaitRemain = 0, pPhase = 'idle';
+let pIdleTimer = null, pAwaitTimer = null, pTickTimer = null;
+
+function pSetPhase(phase) {
+  pPhase = phase;
+  const idle  = document.getElementById('p-phase-idle');
+  const await_ = document.getElementById('p-phase-await');
+  const result = document.getElementById('p-phase-result');
+  idle.className = 'pipe-seg' + (phase==='idle'?' active':'');
+  await_.className = 'pipe-seg' + (phase==='await'?' active':'');
+  result.className = 'pipe-seg' + (phase==='pong'?' done':phase==='stale'?' warn':'');
+  const prog = document.getElementById('p-prog');
+  prog.className = 'prog-fill ' + (phase==='await'?'timeout':'interval');
+}
+function pStartCycle() {
+  pIdleRemain = PING_INTERVAL;
+  pSetPhase('idle');
+  document.getElementById('p-prog').style.width = '0%';
+  document.getElementById('p-idle-val').textContent = pIdleRemain + 's';
+  document.getElementById('p-await-val').textContent = '—';
+  document.getElementById('p-result-label').textContent = '—';
+  document.getElementById('p-result-val').textContent = '—';
+
+  clearInterval(pTickTimer);
+  pTickTimer = setInterval(() => {
+    if (pPhase === 'idle') {
+      pIdleRemain--;
+      const el = document.getElementById('p-idle-val');
+      if (el) el.textContent = Math.max(0,pIdleRemain) + 's';
+      const prog = document.getElementById('p-prog');
+      if (prog) prog.style.width = ((PING_INTERVAL - pIdleRemain) / PING_INTERVAL * 100) + '%';
+      if (pIdleRemain <= 0) {
+        pFirePing();
+      }
+    } else if (pPhase === 'await') {
+      pAwaitRemain--;
+      const el = document.getElementById('p-await-val');
+      if (el) el.textContent = Math.max(0,pAwaitRemain) + 's';
+      const prog = document.getElementById('p-prog');
+      if (prog) prog.style.width = ((PONG_TIMEOUT - pAwaitRemain) / PONG_TIMEOUT * 100) + '%';
+      if (pAwaitRemain <= 0) {
+        pMissedPong();
+      }
+    }
+  }, 1000);
+}
+function pFirePing() {
+  pPings++;
+  document.getElementById('p-pings').textContent = pPings;
+  addLog('p-log', `→ ping #${pPings}`, 'ping');
+  pSetPhase('await');
+  pAwaitRemain = PONG_TIMEOUT;
+  document.getElementById('p-prog').style.width = '0%';
+  document.getElementById('p-await-val').textContent = PONG_TIMEOUT + 's';
+  if (!pIgnore) {
+    setTimeout(() => pReceivePong(), 300);
+  }
+}
+function pReceivePong() {
+  if (pPhase !== 'await') return;
+  pPongs++;
+  document.getElementById('p-pongs').textContent = pPongs;
+  addLog('p-log', `← pong`, 'pong');
+  pSetPhase('pong');
+  document.getElementById('p-result-label').textContent = '✓ Pong';
+  document.getElementById('p-result-val').textContent = 'received';
+  document.getElementById('p-prog').style.width = '100%';
+  setTimeout(() => pStartCycle(), 1500);
+}
+function pMissedPong() {
+  if (pPhase !== 'await') return;
+  pMisses++;
+  document.getElementById('p-misses').textContent = pMisses;
+  document.getElementById('p-misses').style.color = 'var(--stale)';
+  addLog('p-log', `✗ pong timeout — connection stale`, 'miss');
+  pSetPhase('stale');
+  document.getElementById('p-result-label').textContent = '✗ Stale';
+  document.getElementById('p-result-val').textContent = 'closing';
+  setBadge('p-header-badge','stale','Stale');
+  setBadge('p-sidebar-badge','stale','Stale');
+  setTimeout(() => {
+    addLog('p-log','CLOSED — reconnecting','closed');
+    setBadge('p-header-badge','closed','Closed');
+    setBadge('p-sidebar-badge','closed','Closed');
+    pIgnore = false;
+    const track = document.getElementById('p-toggle');
+    if (track) track.classList.remove('on');
+    const lbl = document.getElementById('p-toggle-label');
+    if (lbl) lbl.textContent = 'Ignore heartbeat pings';
+    setTimeout(() => {
+      setBadge('p-header-badge','open','Open');
+      setBadge('p-sidebar-badge','open','Open');
+      addLog('p-log','OPEN','state');
+      pStartCycle();
+    }, 1200);
+  }, 800);
+}
+function pToggleIgnore() {
+  const track = document.getElementById('p-toggle');
+  pIgnore = !pIgnore;
+  track.classList.toggle('on', pIgnore);
+  document.getElementById('p-toggle-label').textContent =
+    pIgnore ? '⚠️ Ignoring pings — pong timeout will fire' : 'Ignore heartbeat pings';
+  addLog('p-log', pIgnore ? 'Server: ignoring pings' : 'Server: pings resumed', pIgnore?'miss':'pong');
+}
+
+// ── VARIANT Q — compact ──────────────────────────────
+let qIgnore = false, qIdleRemain = PING_INTERVAL, qAwaitRemain = 0, qPhase = 'idle';
+let qTickTimer = null;
+
+function qStartCycle() {
+  qIdleRemain = PING_INTERVAL;
+  qPhase = 'idle';
+  document.getElementById('q-next-ping').textContent = qIdleRemain + 's';
+  document.getElementById('q-next-ping').style.color = 'var(--text)';
+  document.getElementById('q-timeout').textContent = '—';
+  document.getElementById('q-timeout').style.color = 'var(--muted)';
+  clearInterval(qTickTimer);
+  qTickTimer = setInterval(() => {
+    if (qPhase === 'idle') {
+      qIdleRemain--;
+      const el = document.getElementById('q-next-ping');
+      if (el) el.textContent = Math.max(0,qIdleRemain) + 's';
+      if (qIdleRemain <= 0) qFirePing();
+    } else if (qPhase === 'await') {
+      qAwaitRemain--;
+      const el = document.getElementById('q-timeout');
+      if (el) { el.textContent = Math.max(0,qAwaitRemain) + 's'; el.style.color = 'var(--stale)'; }
+      if (qAwaitRemain <= 0) qMissedPong();
+    }
+  }, 1000);
+}
+function qFirePing() {
+  addLog('q-log','→ ping','ping');
+  qPhase = 'await';
+  qAwaitRemain = PONG_TIMEOUT;
+  document.getElementById('q-next-ping').textContent = '—';
+  document.getElementById('q-next-ping').style.color = 'var(--muted)';
+  document.getElementById('q-timeout').textContent = PONG_TIMEOUT + 's';
+  document.getElementById('q-timeout').style.color = 'var(--stale)';
+  if (!qIgnore) setTimeout(() => qReceivePong(), 300);
+}
+function qReceivePong() {
+  if (qPhase !== 'await') return;
+  const t = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  document.getElementById('q-last-pong').textContent = t;
+  document.getElementById('q-last-pong').style.color = 'var(--pong)';
+  document.getElementById('q-timeout').textContent = '—';
+  document.getElementById('q-timeout').style.color = 'var(--muted)';
+  addLog('q-log','← pong','pong');
+  qStartCycle();
+}
+function qMissedPong() {
+  if (qPhase !== 'await') return;
+  addLog('q-log','✗ pong timeout — connection stale','miss');
+  setBadge('q-header-badge','stale','Stale');
+  setBadge('q-sidebar-badge','stale','Stale');
+  setTimeout(() => {
+    addLog('q-log','CLOSED — reconnecting','closed');
+    setBadge('q-header-badge','closed','Closed');
+    qIgnore = false;
+    const t = document.getElementById('q-toggle');
+    if (t) t.classList.remove('on');
+    document.getElementById('q-ignoring').textContent = 'No';
+    document.getElementById('q-ignoring').style.color = 'var(--muted)';
+    setTimeout(() => {
+      setBadge('q-header-badge','open','Open');
+      setBadge('q-sidebar-badge','open','Open');
+      addLog('q-log','OPEN','state');
+      qStartCycle();
+    }, 1200);
+  }, 800);
+}
+function qToggleIgnore() {
+  const track = document.getElementById('q-toggle');
+  qIgnore = !qIgnore;
+  track.classList.toggle('on', qIgnore);
+  document.getElementById('q-ignoring').textContent = qIgnore ? 'Yes ⚠️' : 'No';
+  document.getElementById('q-ignoring').style.color = qIgnore ? 'var(--stale)' : 'var(--muted)';
+  addLog('q-log', qIgnore ? 'Server: ignoring pings' : 'Server: pings resumed', qIgnore?'miss':'pong');
+}
+
+// init
+addLog('p-log','OPEN','state');
+addLog('q-log','OPEN','state');
+pStartCycle();
+qStartCycle();
+</script>
+</body>
+</html>

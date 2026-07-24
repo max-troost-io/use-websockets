@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PROTOTYPE — Dev Server UI</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #22263a;
+      --border: #2e3250;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --open: #22c55e;
+      --connecting: #f59e0b;
+      --closed: #ef4444;
+      --accent: #6366f1;
+      --accent-dim: #3730a3;
+      --btn: #2e3250;
+      --btn-hover: #3d4369;
+      --danger: #dc2626;
+      --danger-hover: #b91c1c;
+    }
+
+    body {
+      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      font-size: 13px;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ─── SHARED ─────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .badge-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .badge.open { background: #14532d; color: var(--open); }
+    .badge.open .badge-dot { background: var(--open); }
+    .badge.connecting { background: #451a03; color: var(--connecting); }
+    .badge.connecting .badge-dot { background: var(--connecting); animation: pulse 1s infinite; }
+    .badge.closed { background: #450a0a; color: var(--closed); }
+    .badge.closed .badge-dot { background: var(--closed); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    .btn {
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--btn);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: background 0.12s;
+    }
+    .btn:hover { background: var(--btn-hover); }
+    .btn.danger { border-color: var(--danger); background: #450a0a; color: var(--closed); }
+    .btn.danger:hover { background: var(--danger); color: white; }
+    .btn.active { border-color: var(--accent); background: var(--accent-dim); color: white; }
+
+    .toggle {
+      display: flex; align-items: center; gap: 8px; cursor: pointer;
+    }
+    .toggle-track {
+      width: 36px; height: 20px; border-radius: 10px;
+      background: var(--btn); border: 1px solid var(--border);
+      position: relative; transition: background 0.15s;
+    }
+    .toggle-track.on { background: var(--accent-dim); border-color: var(--accent); }
+    .toggle-knob {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--muted); position: absolute; top: 2px; left: 2px;
+      transition: transform 0.15s, background 0.15s;
+    }
+    .toggle-track.on .toggle-knob { transform: translateX(16px); background: var(--accent); }
+
+    .log {
+      flex: 1; overflow-y: auto; font-family: 'Fira Code', monospace;
+      font-size: 11px; line-height: 1.6; color: var(--muted);
+      min-height: 0;
+    }
+    .log-entry { display: flex; gap: 8px; padding: 1px 0; }
+    .log-time { color: #475569; min-width: 56px; }
+    .log-event { color: var(--text); }
+    .log-event.state { color: var(--open); }
+    .log-event.closed { color: var(--closed); }
+    .log-event.connecting { color: var(--connecting); }
+    .log-event.out { color: #818cf8; }
+
+    .stat { display: flex; flex-direction: column; gap: 2px; }
+    .stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+    .stat-value { font-size: 14px; font-weight: 600; }
+
+    /* ─── VARIANTS WRAPPER ───────────────────────────── */
+    .variant { display: none; flex: 1; flex-direction: column; min-height: 0; }
+    .variant.active { display: flex; }
+
+    /* ───────────────────────────────────────────────── */
+    /* VARIANT A — THREE-PANEL DASHBOARD                 */
+    /* ───────────────────────────────────────────────── */
+    .va-header {
+      display: flex; align-items: center; gap: 20px; padding: 10px 16px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .va-header .url { color: var(--muted); font-family: monospace; font-size: 12px; }
+    .va-header .spacer { flex: 1; }
+    .va-panels {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px; padding: 12px; flex: 1; min-height: 0;
+    }
+    .va-panel {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      display: flex; flex-direction: column; padding: 14px; gap: 12px; min-height: 0;
+    }
+    .va-panel-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: var(--muted); border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+    .va-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+    .va-panel .log-wrap {
+      display: flex; flex-direction: column; flex: 1; min-height: 0;
+      background: var(--surface2); border-radius: 6px; padding: 8px; overflow: hidden;
+    }
+
+    /* ───────────────────────────────────────────────── */
+    /* VARIANT B — SIDEBAR + DETAIL                      */
+    /* ───────────────────────────────────────────────── */
+    .vb-layout {
+      display: flex; flex: 1; min-height: 0;
+    }
+    .vb-sidebar {
+      width: 200px; flex-shrink: 0; background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+    }
+    .vb-sidebar-section {
+      padding: 12px; border-bottom: 1px solid var(--border);
+    }
+    .vb-sidebar-label {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--muted); margin-bottom: 8px; font-weight: 600;
+    }
+    .vb-nav-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 8px; border-radius: 6px; cursor: pointer;
+      font-size: 12px; font-weight: 500; transition: background 0.1s;
+    }
+    .vb-nav-item:hover { background: var(--surface2); }
+    .vb-nav-item.active { background: var(--accent-dim); color: white; }
+    .vb-nav-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+    .vb-nav-item.active .vb-nav-dot { background: white; }
+    .vb-status { padding: 12px; margin-top: auto; }
+    .vb-main {
+      flex: 1; display: flex; flex-direction: column; min-height: 0;
+    }
+    .vb-header {
+      padding: 14px 20px; border-bottom: 1px solid var(--border);
+      background: var(--surface); flex-shrink: 0;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .vb-header h2 { font-size: 14px; font-weight: 600; }
+    .vb-body {
+      flex: 1; display: flex; flex-direction: column; padding: 20px; gap: 16px; min-height: 0;
+      overflow-y: auto;
+    }
+    .vb-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .vb-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .vb-card.grow { flex: 1; }
+    .vb-card-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
+    .vb-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+    .vb-log-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px; flex: 1; display: flex; flex-direction: column;
+      min-height: 0; overflow: hidden;
+    }
+    .vb-log-card .log { margin-top: 8px; }
+
+    /* ───────────────────────────────────────────────── */
+    /* VARIANT C — TABS + FULL-WIDTH EVENT LOG           */
+    /* ───────────────────────────────────────────────── */
+    .vc-statusbar {
+      display: flex; align-items: center; gap: 16px; padding: 8px 16px;
+      background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .vc-url { font-family: monospace; font-size: 11px; color: var(--muted); }
+    .vc-stats { display: flex; gap: 16px; margin-left: auto; }
+    .vc-stat { font-size: 11px; }
+    .vc-stat span { color: var(--muted); }
+    .vc-tabs {
+      display: flex; gap: 0; background: var(--surface);
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .vc-tab {
+      padding: 9px 20px; font-size: 12px; font-weight: 500; cursor: pointer;
+      border-bottom: 2px solid transparent; color: var(--muted); transition: all 0.1s;
+    }
+    .vc-tab:hover { color: var(--text); }
+    .vc-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+    .vc-scenario {
+      display: none; padding: 16px; background: var(--surface2);
+      border-bottom: 1px solid var(--border); flex-shrink: 0; gap: 12px;
+    }
+    .vc-scenario.active { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .vc-scenario-label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+    .vc-log-section {
+      flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 12px 16px;
+    }
+    .vc-log-header {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--muted); margin-bottom: 8px; font-weight: 700;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .vc-clear { font-size: 11px; cursor: pointer; color: var(--muted); text-transform: none; letter-spacing: 0; }
+    .vc-clear:hover { color: var(--text); }
+
+    /* ─── PROTOTYPE SWITCHER BAR ─────────────────────── */
+    .switcher {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 10px 16px; background: #0a0c14;
+      border-top: 1px solid #2e3250;
+    }
+    .switcher-label { font-size: 11px; color: var(--muted); font-weight: 600; margin-right: 4px; }
+    .switcher-btn {
+      padding: 5px 14px; border-radius: 4px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--muted); cursor: pointer;
+      font-size: 12px; font-weight: 500; transition: all 0.12s;
+    }
+    .switcher-btn:hover { color: var(--text); border-color: #475569; }
+    .switcher-btn.active { background: var(--accent-dim); border-color: var(--accent); color: white; }
+    .switcher-desc { font-size: 11px; color: var(--muted); margin-left: 12px; }
+
+    body { padding-bottom: 46px; }
+  </style>
+</head>
+<body>
+
+  <!-- ══════════════════════════════════════════════════
+       VARIANT A — THREE-PANEL DASHBOARD
+  ══════════════════════════════════════════════════ -->
+  <div class="variant active" id="v-A">
+    <div class="va-header">
+      <span class="badge open"><span class="badge-dot"></span>Open</span>
+      <span class="url">ws://localhost:3001</span>
+      <div class="spacer"></div>
+      <div class="stat">
+        <span class="stat-label">Reconnects</span>
+        <span class="stat-value">0</span>
+      </div>
+      <div class="stat" style="margin-left:16px">
+        <span class="stat-label">Last msg</span>
+        <span class="stat-value">1s ago</span>
+      </div>
+    </div>
+
+    <div class="va-panels">
+
+      <!-- Reconnection panel -->
+      <div class="va-panel">
+        <div class="va-panel-title">↺ Reconnection</div>
+        <div class="va-controls">
+          <button class="btn danger">Drop Connection</button>
+          <button class="btn">Block 10s</button>
+        </div>
+        <div style="display:flex;gap:16px">
+          <div class="stat">
+            <span class="stat-label">Attempts</span>
+            <span class="stat-value" id="va-attempts">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Phase</span>
+            <span class="stat-value" id="va-phase">—</span>
+          </div>
+        </div>
+        <div class="log-wrap">
+          <div class="log" id="va-log-reconnect"></div>
+        </div>
+      </div>
+
+      <!-- Heartbeat panel -->
+      <div class="va-panel">
+        <div class="va-panel-title">♡ Heartbeat</div>
+        <div class="va-controls">
+          <label class="toggle" onclick="toggleHeartbeat(this)">
+            <div class="toggle-track" id="hb-track"><div class="toggle-knob"></div></div>
+            <span id="hb-label">Ignore Pings</span>
+          </label>
+        </div>
+        <div style="display:flex;gap:16px">
+          <div class="stat">
+            <span class="stat-label">Last Pong</span>
+            <span class="stat-value">2s ago</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Timeout in</span>
+            <span class="stat-value" id="va-hb-countdown">—</span>
+          </div>
+        </div>
+        <div class="log-wrap">
+          <div class="log" id="va-log-heartbeat"></div>
+        </div>
+      </div>
+
+      <!-- Online/Offline panel -->
+      <div class="va-panel">
+        <div class="va-panel-title">⚡ Online / Offline</div>
+        <div class="va-controls">
+          <button class="btn danger" onclick="goOffline()">Go Offline</button>
+          <button class="btn" onclick="goOnline()">Come Online</button>
+        </div>
+        <div style="display:flex;gap:16px">
+          <div class="stat">
+            <span class="stat-label">navigator.onLine</span>
+            <span class="stat-value" id="va-online-status">true</span>
+          </div>
+        </div>
+        <div class="log-wrap">
+          <div class="log" id="va-log-network"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       VARIANT B — SIDEBAR + DETAIL
+  ══════════════════════════════════════════════════ -->
+  <div class="variant" id="v-B">
+    <div class="vb-layout">
+      <div class="vb-sidebar">
+        <div class="vb-sidebar-section">
+          <div class="vb-sidebar-label">Scenarios</div>
+          <div class="vb-nav-item active" onclick="selectScenario('reconnect', this)">
+            <div class="vb-nav-dot"></div>↺ Reconnection
+          </div>
+          <div class="vb-nav-item" onclick="selectScenario('heartbeat', this)">
+            <div class="vb-nav-dot"></div>♡ Heartbeat
+          </div>
+          <div class="vb-nav-item" onclick="selectScenario('network', this)">
+            <div class="vb-nav-dot"></div>⚡ Online/Offline
+          </div>
+        </div>
+        <div class="vb-status">
+          <div class="vb-sidebar-label">Connection</div>
+          <span class="badge open" style="margin-bottom:8px;display:inline-flex"><span class="badge-dot"></span>Open</span>
+          <div style="font-size:11px;color:var(--muted);font-family:monospace;margin-top:6px;word-break:break-all">ws://localhost:3001</div>
+        </div>
+      </div>
+
+      <div class="vb-main">
+        <!-- Reconnection detail -->
+        <div id="vb-reconnect" class="vb-scenario-detail" style="display:flex;flex-direction:column;flex:1;min-height:0">
+          <div class="vb-header">
+            <h2>↺ Reconnection</h2>
+            <span class="badge open"><span class="badge-dot"></span>Open</span>
+          </div>
+          <div class="vb-body">
+            <div class="vb-row">
+              <div class="vb-card">
+                <div class="vb-card-label">State</div>
+                <div style="display:flex;gap:24px">
+                  <div class="stat"><span class="stat-label">ReadyState</span><span class="stat-value" style="color:var(--open)">OPEN</span></div>
+                  <div class="stat"><span class="stat-label">Attempts</span><span class="stat-value">0</span></div>
+                  <div class="stat"><span class="stat-label">Backoff phase</span><span class="stat-value">—</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="vb-row">
+              <div class="vb-card grow">
+                <div class="vb-card-label">Controls</div>
+                <div class="vb-controls">
+                  <button class="btn danger">Drop Connection</button>
+                  <button class="btn">Block Reconnects 10s</button>
+                  <button class="btn">Block Reconnects 30s</button>
+                </div>
+              </div>
+            </div>
+            <div class="vb-log-card" style="flex:1;min-height:120px">
+              <div class="vb-card-label">Event log</div>
+              <div class="log">
+                <div class="log-entry"><span class="log-time">14:02:01</span><span class="log-event state">OPEN</span></div>
+                <div class="log-entry"><span class="log-time">14:02:05</span><span class="log-event out">→ ping</span></div>
+                <div class="log-entry"><span class="log-time">14:02:05</span><span class="log-event">← pong</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Heartbeat detail (hidden initially) -->
+        <div id="vb-heartbeat" class="vb-scenario-detail" style="display:none;flex-direction:column;flex:1;min-height:0">
+          <div class="vb-header">
+            <h2>♡ Heartbeat</h2>
+            <span class="badge open"><span class="badge-dot"></span>Open</span>
+          </div>
+          <div class="vb-body">
+            <div class="vb-row">
+              <div class="vb-card">
+                <div class="vb-card-label">State</div>
+                <div style="display:flex;gap:24px">
+                  <div class="stat"><span class="stat-label">Last Pong</span><span class="stat-value">2s ago</span></div>
+                  <div class="stat"><span class="stat-label">Timeout in</span><span class="stat-value">—</span></div>
+                  <div class="stat"><span class="stat-label">Ignoring Pings</span><span class="stat-value" style="color:var(--muted)">No</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="vb-row">
+              <div class="vb-card grow">
+                <div class="vb-card-label">Controls</div>
+                <div class="vb-controls">
+                  <label class="toggle">
+                    <div class="toggle-track"><div class="toggle-knob"></div></div>
+                    <span>Ignore Heartbeat Pings</span>
+                  </label>
+                </div>
+                <div style="font-size:11px;color:var(--muted);margin-top:8px">When on, server receives pings but sends no pong. Library will declare connection stale after ~40s.</div>
+              </div>
+            </div>
+            <div class="vb-log-card" style="flex:1;min-height:120px">
+              <div class="vb-card-label">Event log</div>
+              <div class="log">
+                <div class="log-entry"><span class="log-time">14:02:05</span><span class="log-event out">→ ping</span></div>
+                <div class="log-entry"><span class="log-time">14:02:05</span><span class="log-event">← pong</span></div>
+                <div class="log-entry"><span class="log-time">14:02:45</span><span class="log-event out">→ ping</span></div>
+                <div class="log-entry"><span class="log-time">14:02:45</span><span class="log-event" style="color:var(--muted)">← (no pong)</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Network detail (hidden initially) -->
+        <div id="vb-network" class="vb-scenario-detail" style="display:none;flex-direction:column;flex:1;min-height:0">
+          <div class="vb-header">
+            <h2>⚡ Online / Offline</h2>
+            <span class="badge open"><span class="badge-dot"></span>Open</span>
+          </div>
+          <div class="vb-body">
+            <div class="vb-row">
+              <div class="vb-card">
+                <div class="vb-card-label">State</div>
+                <div style="display:flex;gap:24px">
+                  <div class="stat"><span class="stat-label">navigator.onLine</span><span class="stat-value" style="color:var(--open)">true</span></div>
+                  <div class="stat"><span class="stat-label">ReadyState</span><span class="stat-value" style="color:var(--open)">OPEN</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="vb-row">
+              <div class="vb-card grow">
+                <div class="vb-card-label">Controls</div>
+                <div class="vb-controls">
+                  <button class="btn danger">Simulate Offline</button>
+                  <button class="btn">Simulate Online</button>
+                </div>
+                <div style="font-size:11px;color:var(--muted);margin-top:8px">Dispatches synthetic browser <code style="background:var(--surface2);padding:1px 4px;border-radius:3px">online</code> / <code style="background:var(--surface2);padding:1px 4px;border-radius:3px">offline</code> events. Does not kill the socket.</div>
+              </div>
+            </div>
+            <div class="vb-log-card" style="flex:1;min-height:120px">
+              <div class="vb-card-label">Event log</div>
+              <div class="log">
+                <div class="log-entry"><span class="log-time">14:03:10</span><span class="log-event closed">offline event fired</span></div>
+                <div class="log-entry"><span class="log-time">14:03:10</span><span class="log-event connecting">CONNECTING</span></div>
+                <div class="log-entry"><span class="log-time">14:03:22</span><span class="log-event">online event fired</span></div>
+                <div class="log-entry"><span class="log-time">14:03:22</span><span class="log-event state">OPEN</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       VARIANT C — TABS + FULL-WIDTH EVENT LOG
+  ══════════════════════════════════════════════════ -->
+  <div class="variant" id="v-C">
+    <div class="vc-statusbar">
+      <span class="badge open"><span class="badge-dot"></span>Open</span>
+      <span class="vc-url">ws://localhost:3001</span>
+      <div class="vc-stats">
+        <div class="vc-stat"><span>Reconnects </span>0</div>
+        <div class="vc-stat"><span>Last msg </span>1s ago</div>
+        <div class="vc-stat"><span>Pong </span>2s ago</div>
+      </div>
+    </div>
+
+    <div class="vc-tabs">
+      <div class="vc-tab active" onclick="selectTab('reconnect', this)">↺ Reconnection</div>
+      <div class="vc-tab" onclick="selectTab('heartbeat', this)">♡ Heartbeat</div>
+      <div class="vc-tab" onclick="selectTab('network', this)">⚡ Online/Offline</div>
+    </div>
+
+    <div class="vc-scenario active" id="vct-reconnect">
+      <span class="vc-scenario-label">Controls</span>
+      <button class="btn danger">Drop Connection</button>
+      <button class="btn">Block 10s</button>
+      <button class="btn">Block 30s</button>
+      <div style="margin-left:auto;display:flex;gap:16px">
+        <div class="stat"><span class="stat-label">Attempts</span><span class="stat-value">0</span></div>
+        <div class="stat"><span class="stat-label">Phase</span><span class="stat-value">—</span></div>
+      </div>
+    </div>
+
+    <div class="vc-scenario" id="vct-heartbeat">
+      <span class="vc-scenario-label">Controls</span>
+      <label class="toggle">
+        <div class="toggle-track"><div class="toggle-knob"></div></div>
+        <span>Ignore Pings</span>
+      </label>
+      <div style="margin-left:auto;display:flex;gap:16px">
+        <div class="stat"><span class="stat-label">Last Pong</span><span class="stat-value">2s ago</span></div>
+        <div class="stat"><span class="stat-label">Timeout in</span><span class="stat-value">—</span></div>
+      </div>
+    </div>
+
+    <div class="vc-scenario" id="vct-network">
+      <span class="vc-scenario-label">Controls</span>
+      <button class="btn danger">Go Offline</button>
+      <button class="btn">Come Online</button>
+      <div style="margin-left:auto;display:flex;gap:16px">
+        <div class="stat"><span class="stat-label">navigator.onLine</span><span class="stat-value" style="color:var(--open)">true</span></div>
+      </div>
+    </div>
+
+    <div class="vc-log-section">
+      <div class="vc-log-header">
+        Event log
+        <span class="vc-clear">clear</span>
+      </div>
+      <div class="log" id="vc-log">
+        <div class="log-entry"><span class="log-time">14:02:01</span><span class="log-event state">OPEN</span></div>
+        <div class="log-entry"><span class="log-time">14:02:05</span><span class="log-event out">→ ping</span></div>
+        <div class="log-entry"><span class="log-time">14:02:05</span><span class="log-event">← pong</span></div>
+        <div class="log-entry"><span class="log-time">14:02:45</span><span class="log-event out">→ ping</span></div>
+        <div class="log-entry"><span class="log-time">14:02:45</span><span class="log-event">← pong</span></div>
+        <div class="log-entry"><span class="log-time">14:03:10</span><span class="log-event closed">offline event fired</span></div>
+        <div class="log-entry"><span class="log-time">14:03:10</span><span class="log-event connecting">CONNECTING</span></div>
+        <div class="log-entry"><span class="log-time">14:03:22</span><span class="log-event">online event fired</span></div>
+        <div class="log-entry"><span class="log-time">14:03:22</span><span class="log-event state">OPEN</span></div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════
+       PROTOTYPE SWITCHER
+  ══════════════════════════════════════════════════ -->
+  <div class="switcher">
+    <span class="switcher-label">PROTOTYPE</span>
+    <button class="switcher-btn active" onclick="switchVariant('A', this)">A — Dashboard</button>
+    <button class="switcher-btn" onclick="switchVariant('B', this)">B — Sidebar</button>
+    <button class="switcher-btn" onclick="switchVariant('C', this)">C — Tabs + Log</button>
+    <span class="switcher-desc" id="switcher-desc">All scenarios visible at once, side by side</span>
+  </div>
+
+
+  <script>
+    const descriptions = {
+      A: 'All scenarios visible at once, side by side',
+      B: 'Select a scenario from the sidebar, focus on one at a time',
+      C: 'Minimal controls strip, shared full-width event log',
+    };
+
+    function switchVariant(v, btn) {
+      document.querySelectorAll('.variant').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.switcher-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById('v-' + v).classList.add('active');
+      btn.classList.add('active');
+      document.getElementById('switcher-desc').textContent = descriptions[v];
+    }
+
+    // Variant B — sidebar nav
+    function selectScenario(name, el) {
+      document.querySelectorAll('.vb-nav-item').forEach(i => i.classList.remove('active'));
+      el.classList.add('active');
+      document.querySelectorAll('.vb-scenario-detail').forEach(d => d.style.display = 'none');
+      const target = document.getElementById('vb-' + name);
+      if (target) target.style.display = 'flex';
+    }
+
+    // Variant C — tab strip
+    function selectTab(name, el) {
+      document.querySelectorAll('.vc-tab').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      document.querySelectorAll('.vc-scenario').forEach(s => s.classList.remove('active'));
+      const target = document.getElementById('vct-' + name);
+      if (target) target.classList.add('active');
+    }
+
+    // Heartbeat toggle (Variant A demo)
+    function toggleHeartbeat(label) {
+      const track = document.getElementById('hb-track');
+      const isOn = track.classList.toggle('on');
+      document.getElementById('hb-label').textContent = isOn ? 'Ignoring Pings ⚠️' : 'Ignore Pings';
+      if (isOn) {
+        addLog('va-log-heartbeat', 'server: ignoring pings', 'closed');
+        startCountdown();
+      } else {
+        addLog('va-log-heartbeat', 'server: pings resumed', 'state');
+      }
+    }
+
+    let countdownTimer = null;
+    function startCountdown() {
+      let secs = 40;
+      document.getElementById('va-hb-countdown').textContent = secs + 's';
+      clearInterval(countdownTimer);
+      countdownTimer = setInterval(() => {
+        secs--;
+        const el = document.getElementById('va-hb-countdown');
+        if (!el) { clearInterval(countdownTimer); return; }
+        el.textContent = secs > 0 ? secs + 's' : '—';
+        if (secs <= 0) {
+          clearInterval(countdownTimer);
+          addLog('va-log-heartbeat', 'CLOSED (stale)', 'closed');
+        }
+      }, 1000);
+    }
+
+    // Online/Offline (Variant A demo)
+    function goOffline() {
+      document.getElementById('va-online-status').textContent = 'false';
+      document.getElementById('va-online-status').style.color = 'var(--closed)';
+      addLog('va-log-network', 'offline event fired', 'closed');
+      addLog('va-log-network', 'CONNECTING', 'connecting');
+    }
+    function goOnline() {
+      document.getElementById('va-online-status').textContent = 'true';
+      document.getElementById('va-online-status').style.color = 'var(--open)';
+      addLog('va-log-network', 'online event fired', '');
+      setTimeout(() => addLog('va-log-network', 'OPEN', 'state'), 600);
+    }
+
+    function now() {
+      return new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    }
+    function addLog(id, msg, cls) {
+      const log = document.getElementById(id);
+      if (!log) return;
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `<span class="log-time">${now()}</span><span class="log-event ${cls}">${msg}</span>`;
+      log.appendChild(entry);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    // Seed variant A logs
+    addLog('va-log-reconnect', 'OPEN', 'state');
+    addLog('va-log-reconnect', '→ ping', 'out');
+    addLog('va-log-reconnect', '← pong', '');
+    addLog('va-log-heartbeat', '→ ping', 'out');
+    addLog('va-log-heartbeat', '← pong', '');
+    addLog('va-log-network', 'OPEN', 'state');
+  </script>
+</body>
+</html>

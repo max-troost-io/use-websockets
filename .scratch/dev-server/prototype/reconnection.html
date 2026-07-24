@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PROTOTYPE — Reconnection Scenario</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a;
+      --border: #2e3250; --text: #e2e8f0; --muted: #64748b;
+      --open: #22c55e; --connecting: #f59e0b; --closed: #ef4444;
+      --accent: #6366f1; --accent-dim: #3730a3;
+      --btn: #2e3250; --btn-hover: #3d4369;
+    }
+    body {
+      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      font-size: 13px; background: var(--bg); color: var(--text);
+      height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    /* Shared */
+    .badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px;
+      border-radius: 999px; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .05em; }
+    .badge-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .badge.open { background:#14532d; color:var(--open); }
+    .badge.open .badge-dot { background:var(--open); }
+    .badge.connecting { background:#451a03; color:var(--connecting); }
+    .badge.connecting .badge-dot { background:var(--connecting); animation:pulse 1s infinite; }
+    .badge.closed { background:#450a0a; color:var(--closed); }
+    .badge.closed .badge-dot { background:var(--closed); }
+    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
+
+    .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--btn); color: var(--text); cursor: pointer; font-size: 12px;
+      font-weight: 500; transition: background .12s; }
+    .btn:hover { background: var(--btn-hover); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn.danger { border-color:#7f1d1d; background:#450a0a; color:var(--closed); }
+    .btn.danger:hover:not(:disabled) { background:var(--closed); color:white; }
+    .btn.primary { border-color:var(--accent); background:var(--accent-dim); color:white; }
+    .btn.primary:hover:not(:disabled) { background:var(--accent); }
+
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px; }
+    .card-label { font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+      color:var(--muted); font-weight:600; margin-bottom:10px; }
+
+    .stat { display:flex; flex-direction:column; gap:2px; }
+    .stat-label { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+    .stat-value { font-size:16px; font-weight:700; }
+
+    .log { font-family:'Fira Code',monospace; font-size:11px; line-height:1.7;
+      overflow-y:auto; flex:1; min-height:0; }
+    .log-entry { display:flex; gap:8px; }
+    .log-time { color:#475569; min-width:56px; }
+    .log-ev { color:var(--text); }
+    .log-ev.state { color:var(--open); }
+    .log-ev.closed { color:var(--closed); }
+    .log-ev.connecting { color:var(--connecting); }
+    .log-ev.attempt { color:#f0abfc; }
+    .log-ev.blocked { color:#fb923c; }
+
+    /* Layout shell */
+    .shell { display:flex; flex:1; min-height:0; }
+    .sidebar { width:200px; flex-shrink:0; background:var(--surface);
+      border-right:1px solid var(--border); display:flex; flex-direction:column; }
+    .sidebar-nav { padding:12px; }
+    .sidebar-label { font-size:10px; text-transform:uppercase; letter-spacing:.1em;
+      color:var(--muted); font-weight:600; margin-bottom:8px; }
+    .nav-item { display:flex; align-items:center; gap:8px; padding:7px 8px;
+      border-radius:6px; font-size:12px; font-weight:500; color:var(--muted); }
+    .nav-item.active { background:var(--accent-dim); color:white; }
+    .nav-dot { width:7px; height:7px; border-radius:50%; background:currentColor; opacity:.4; flex-shrink:0; }
+    .nav-item.active .nav-dot { opacity:1; }
+    .sidebar-status { margin-top:auto; padding:12px; border-top:1px solid var(--border); }
+    .main { flex:1; display:flex; flex-direction:column; min-height:0; }
+    .main-header { padding:12px 20px; border-bottom:1px solid var(--border);
+      background:var(--surface); flex-shrink:0;
+      display:flex; align-items:center; justify-content:space-between; }
+    .main-header h2 { font-size:14px; font-weight:600; }
+    .main-body { flex:1; display:flex; flex-direction:column; padding:16px; gap:12px; min-height:0; overflow-y:auto; }
+
+    /* Variant wrapper */
+    .variant { display:none; flex:1; flex-direction:column; min-height:0; }
+    .variant.active { display:flex; }
+
+    /* ───────────────────────────────────────────────────
+       VARIANT X — SEPARATE CONTROLS
+       Drop and Block are independent actions
+    ─────────────────────────────────────────────────── */
+    /* no extra styles needed, uses shared */
+
+    /* ───────────────────────────────────────────────────
+       VARIANT Y — UNIFIED "DROP + BLOCK" FLOW
+    ─────────────────────────────────────────────────── */
+    .duration-picker { display:flex; gap:6px; flex-wrap:wrap; }
+    .dur-opt { padding:5px 12px; border-radius:6px; border:1px solid var(--border);
+      background:var(--btn); color:var(--muted); cursor:pointer; font-size:12px;
+      font-weight:500; transition:all .12s; }
+    .dur-opt:hover { color:var(--text); }
+    .dur-opt.selected { border-color:var(--accent); background:var(--accent-dim); color:white; }
+
+    /* Phase progress bar (variant Y) */
+    .phase-bar { display:flex; gap:4px; height:28px; }
+    .phase-seg { display:flex; align-items:center; justify-content:center;
+      border-radius:4px; font-size:10px; font-weight:600; color:white; flex:1;
+      opacity:.25; transition:opacity .2s; }
+    .phase-seg.active { opacity:1; }
+    .phase-seg.done { opacity:.5; }
+    .phase-p1 { background:#0d9488; }
+    .phase-p2 { background:#d97706; }
+    .phase-p3 { background:#dc2626; }
+
+    /* Countdown ring (variant Y) */
+    .countdown-wrap { display:flex; align-items:center; gap:12px; }
+    .ring-wrap { position:relative; width:48px; height:48px; flex-shrink:0; }
+    .ring-wrap svg { transform:rotate(-90deg); }
+    .ring-bg { fill:none; stroke:var(--surface2); stroke-width:4; }
+    .ring-fg { fill:none; stroke:var(--connecting); stroke-width:4;
+      stroke-linecap:round; stroke-dasharray:126; stroke-dashoffset:126;
+      transition:stroke-dashoffset .9s linear; }
+    .ring-label { position:absolute; inset:0; display:flex; align-items:center;
+      justify-content:center; font-size:11px; font-weight:700; color:var(--text); }
+
+    /* Switcher bar */
+    .switcher { position:fixed; bottom:0; left:0; right:0; z-index:9999;
+      display:flex; align-items:center; justify-content:center; gap:8px;
+      padding:10px 16px; background:#0a0c14; border-top:1px solid #2e3250; }
+    .sw-label { font-size:11px; color:var(--muted); font-weight:600; margin-right:4px; }
+    .sw-btn { padding:5px 14px; border-radius:4px; border:1px solid var(--border);
+      background:var(--surface); color:var(--muted); cursor:pointer;
+      font-size:12px; font-weight:500; transition:all .12s; }
+    .sw-btn:hover { color:var(--text); }
+    .sw-btn.active { background:var(--accent-dim); border-color:var(--accent); color:white; }
+    .sw-desc { font-size:11px; color:var(--muted); margin-left:12px; }
+    body { padding-bottom:46px; }
+  </style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════
+     VARIANT X — SEPARATE CONTROLS
+     Drop and Block are two independent controls.
+     User can drop without blocking, or toggle "block" separately.
+════════════════════════════════════════════════════ -->
+<div class="variant active" id="v-X">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="sidebar-nav">
+        <div class="sidebar-label">Scenarios</div>
+        <div class="nav-item active"><div class="nav-dot"></div>↺ Reconnection</div>
+        <div class="nav-item"><div class="nav-dot"></div>♡ Heartbeat</div>
+        <div class="nav-item"><div class="nav-dot"></div>⚡ Online/Offline</div>
+      </div>
+      <div class="sidebar-status">
+        <div class="sidebar-label">Connection</div>
+        <span class="badge open" id="x-sidebar-badge"><span class="badge-dot"></span>Open</span>
+      </div>
+    </div>
+    <div class="main">
+      <div class="main-header">
+        <h2>↺ Reconnection</h2>
+        <span class="badge open" id="x-header-badge"><span class="badge-dot"></span>Open</span>
+      </div>
+      <div class="main-body">
+
+        <!-- Stats row -->
+        <div class="card" style="display:flex;gap:32px">
+          <div class="stat">
+            <span class="stat-label">ReadyState</span>
+            <span class="stat-value" id="x-state" style="color:var(--open)">OPEN</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Attempts</span>
+            <span class="stat-value" id="x-attempts">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Backoff delay</span>
+            <span class="stat-value" id="x-delay">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Phase</span>
+            <span class="stat-value" id="x-phase" style="color:var(--muted)">—</span>
+          </div>
+        </div>
+
+        <!-- Controls card — two independent actions -->
+        <div class="card">
+          <div class="card-label">Controls</div>
+          <div style="display:flex;flex-direction:column;gap:12px">
+
+            <div style="display:flex;align-items:center;gap:10px">
+              <button class="btn danger" id="x-drop-btn" onclick="xDrop()">Drop Connection</button>
+              <span style="font-size:11px;color:var(--muted)">Server closes the socket immediately.</span>
+            </div>
+
+            <div style="border-top:1px solid var(--border);padding-top:12px;display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="font-size:11px;color:var(--muted);font-weight:500">Block reconnects</div>
+                <div style="display:flex;gap:6px">
+                  <button class="btn" id="x-block10" onclick="xBlock(10)">10s</button>
+                  <button class="btn" id="x-block60" onclick="xBlock(60)">60s</button>
+                  <button class="btn" id="x-block120" onclick="xBlock(120)">120s</button>
+                  <button class="btn" id="x-blockhold" onclick="xBlock(-1)">Hold</button>
+                  <button class="btn" id="x-unblock" onclick="xUnblock()" disabled>Release</button>
+                </div>
+              </div>
+              <div id="x-block-status" style="font-size:11px;color:var(--muted);margin-top:20px"></div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Event log -->
+        <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div class="card-label">Event log</div>
+          <div class="log" id="x-log"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════
+     VARIANT Y — UNIFIED DROP + BLOCK
+     "Drop Connection" always includes a configurable block duration.
+     Duration is chosen before hitting the button.
+════════════════════════════════════════════════════ -->
+<div class="variant" id="v-Y">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="sidebar-nav">
+        <div class="sidebar-label">Scenarios</div>
+        <div class="nav-item active"><div class="nav-dot"></div>↺ Reconnection</div>
+        <div class="nav-item"><div class="nav-dot"></div>♡ Heartbeat</div>
+        <div class="nav-item"><div class="nav-dot"></div>⚡ Online/Offline</div>
+      </div>
+      <div class="sidebar-status">
+        <div class="sidebar-label">Connection</div>
+        <span class="badge open" id="y-sidebar-badge"><span class="badge-dot"></span>Open</span>
+      </div>
+    </div>
+    <div class="main">
+      <div class="main-header">
+        <h2>↺ Reconnection</h2>
+        <span class="badge open" id="y-header-badge"><span class="badge-dot"></span>Open</span>
+      </div>
+      <div class="main-body">
+
+        <!-- Stats row with phase bar -->
+        <div class="card">
+          <div style="display:flex;gap:32px;margin-bottom:12px">
+            <div class="stat">
+              <span class="stat-label">ReadyState</span>
+              <span class="stat-value" id="y-state" style="color:var(--open)">OPEN</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Attempts</span>
+              <span class="stat-value" id="y-attempts">0</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Next retry in</span>
+              <span class="stat-value" id="y-next">—</span>
+            </div>
+          </div>
+          <!-- Phase progress -->
+          <div class="card-label" style="margin-bottom:6px">Reconnection phase</div>
+          <div class="phase-bar">
+            <div class="phase-seg phase-p1" id="y-p1">Phase 1 · 4s ×5</div>
+            <div class="phase-seg phase-p2" id="y-p2">Phase 2 · 30s ×5</div>
+            <div class="phase-seg phase-p3" id="y-p3">Phase 3 · 90s ×10</div>
+          </div>
+        </div>
+
+        <!-- Controls — unified action -->
+        <div class="card">
+          <div class="card-label">Controls</div>
+          <div style="display:flex;flex-direction:column;gap:12px">
+
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:500">Block duration</div>
+              <div class="duration-picker">
+                <div class="dur-opt" onclick="ySelectDur(0, this)">No block</div>
+                <div class="dur-opt selected" onclick="ySelectDur(10, this)">10s</div>
+                <div class="dur-opt" onclick="ySelectDur(60, this)">60s</div>
+                <div class="dur-opt" onclick="ySelectDur(120, this)">120s</div>
+                <div class="dur-opt" onclick="ySelectDur(-1, this)">Hold</div>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:12px">
+              <button class="btn primary" id="y-drop-btn" onclick="yDrop()">Drop Connection</button>
+              <button class="btn" id="y-release-btn" onclick="yRelease()" disabled>Release Block</button>
+              <div id="y-countdown-wrap" style="display:none">
+                <div class="countdown-wrap">
+                  <div class="ring-wrap">
+                    <svg width="48" height="48" viewBox="0 0 48 48">
+                      <circle class="ring-bg" cx="24" cy="24" r="20"/>
+                      <circle class="ring-fg" id="y-ring" cx="24" cy="24" r="20"/>
+                    </svg>
+                    <div class="ring-label" id="y-ring-label">—</div>
+                  </div>
+                  <div style="font-size:11px;color:var(--muted)">Server blocking<br>reconnects</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Event log -->
+        <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div class="card-label">Event log</div>
+          <div class="log" id="y-log"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Switcher bar -->
+<div class="switcher">
+  <span class="sw-label">PROTOTYPE</span>
+  <button class="sw-btn active" onclick="sw('X',this)">X — Separate controls</button>
+  <button class="sw-btn" onclick="sw('Y',this)">Y — Unified drop+block</button>
+  <span class="sw-desc" id="sw-desc">Drop and Block are independent — use either without the other</span>
+</div>
+
+
+<script>
+// ── shared state ──────────────────────────────────────
+const descriptions = {
+  X: 'Drop and Block are independent — use either without the other',
+  Y: 'Duration is chosen upfront; one button always drops and blocks together',
+};
+function sw(v, btn) {
+  document.querySelectorAll('.variant').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.sw-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('v-' + v).classList.add('active');
+  btn.classList.add('active');
+  document.getElementById('sw-desc').textContent = descriptions[v];
+}
+function now() {
+  return new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+function addLog(id, msg, cls='') {
+  const log = document.getElementById(id);
+  if (!log) return;
+  const e = document.createElement('div');
+  e.className = 'log-entry';
+  e.innerHTML = `<span class="log-time">${now()}</span><span class="log-ev ${cls}">${msg}</span>`;
+  log.appendChild(e);
+  log.scrollTop = log.scrollHeight;
+}
+function setBadge(id, state) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'badge ' + state;
+  el.innerHTML = `<span class="badge-dot"></span>${state.charAt(0).toUpperCase()+state.slice(1)}`;
+}
+
+// ── reconnection simulator (shared) ──────────────────
+const phases = [{delay:4,max:5},{delay:30,max:10},{delay:90,max:20}];
+function getPhase(attempts) {
+  if (attempts < 5) return {n:1, delay:'4s', label:'Phase 1'};
+  if (attempts < 10) return {n:2, delay:'30s', label:'Phase 2'};
+  return {n:3, delay:'90s', label:'Phase 3'};
+}
+
+// ── VARIANT X ─────────────────────────────────────────
+let xBlocked = false, xBlockTimer = null, xReconnectSim = null, xAttempts = 0;
+
+function xSetState(state, color) {
+  document.getElementById('x-state').textContent = state;
+  document.getElementById('x-state').style.color = `var(--${color})`;
+  setBadge('x-header-badge', color === 'open' ? 'open' : color === 'connecting' ? 'connecting' : 'closed');
+  setBadge('x-sidebar-badge', color === 'open' ? 'open' : color === 'connecting' ? 'connecting' : 'closed');
+}
+function xDrop() {
+  addLog('x-log', 'Server closed connection', 'closed');
+  xSetState('CLOSED', 'closed');
+  document.getElementById('x-delay').textContent = '—';
+  document.getElementById('x-phase').textContent = '—';
+  xAttempts = 0;
+  document.getElementById('x-attempts').textContent = xAttempts;
+  clearTimeout(xReconnectSim);
+  xSimReconnect();
+}
+function xSimReconnect() {
+  if (xAttempts >= 20) { addLog('x-log', 'Max attempts reached — stopped', 'closed'); return; }
+  const p = getPhase(xAttempts);
+  const delaySec = parseInt(p.delay);
+  xSetState('CONNECTING', 'connecting');
+  addLog('x-log', `→ reconnecting (attempt ${xAttempts+1}, ${p.label} · ${p.delay})`, 'attempt');
+  document.getElementById('x-delay').textContent = p.delay;
+  document.getElementById('x-phase').textContent = p.label;
+  xReconnectSim = setTimeout(() => {
+    if (xBlocked) {
+      xAttempts++;
+      document.getElementById('x-attempts').textContent = xAttempts;
+      addLog('x-log', `✗ server refused reconnect`, 'blocked');
+      xSimReconnect();
+    } else {
+      xSetState('OPEN', 'open');
+      addLog('x-log', 'OPEN', 'state');
+      document.getElementById('x-delay').textContent = '—';
+      document.getElementById('x-phase').textContent = '—';
+      xAttempts = 0;
+      document.getElementById('x-attempts').textContent = 0;
+    }
+  }, 800); // sped up for prototype
+}
+function xBlock(secs) {
+  xBlocked = true;
+  clearTimeout(xBlockTimer);
+  ['x-block10','x-block60','x-block120','x-blockhold'].forEach(id => {
+    document.getElementById(id).classList.add('primary');
+  });
+  document.getElementById('x-unblock').disabled = false;
+  if (secs > 0) {
+    document.getElementById('x-block-status').textContent = `Blocking reconnects for ${secs}s`;
+    xBlockTimer = setTimeout(() => xUnblock(), secs * 1000);
+  } else {
+    document.getElementById('x-block-status').textContent = `Blocking reconnects (held)`;
+  }
+  addLog('x-log', `Server: blocking reconnects${secs>0?` for ${secs}s`:''}`, 'blocked');
+}
+function xUnblock() {
+  xBlocked = false;
+  clearTimeout(xBlockTimer);
+  ['x-block10','x-block60','x-block120','x-blockhold'].forEach(id => {
+    document.getElementById(id).classList.remove('primary');
+  });
+  document.getElementById('x-unblock').disabled = true;
+  document.getElementById('x-block-status').textContent = '';
+  addLog('x-log', 'Server: reconnects allowed', 'state');
+}
+
+// ── VARIANT Y ─────────────────────────────────────────
+let yDur = 10, yBlocked = false, yBlockTimer = null, yReconnectSim = null;
+let yAttempts = 0, yCountdownSecs = 0, yCountdownInterval = null;
+
+function ySelectDur(secs, el) {
+  yDur = secs;
+  document.querySelectorAll('#v-Y .dur-opt').forEach(e => e.classList.remove('selected'));
+  el.classList.add('selected');
+}
+function yUpdatePhaseBar(attempts) {
+  const phase = getPhase(attempts);
+  document.getElementById('y-p1').className = 'phase-seg phase-p1' + (phase.n===1?' active':phase.n>1?' done':'');
+  document.getElementById('y-p2').className = 'phase-seg phase-p2' + (phase.n===2?' active':phase.n>2?' done':'');
+  document.getElementById('y-p3').className = 'phase-seg phase-p3' + (phase.n===3?' active':'');
+}
+function yStartCountdown(total) {
+  yCountdownSecs = total;
+  document.getElementById('y-countdown-wrap').style.display = '';
+  document.getElementById('y-release-btn').disabled = false;
+  clearInterval(yCountdownInterval);
+  function tick() {
+    const ring = document.getElementById('y-ring');
+    const label = document.getElementById('y-ring-label');
+    if (!ring) return;
+    const offset = total > 0 ? 126 * (1 - yCountdownSecs / total) : 126;
+    ring.style.strokeDashoffset = 126 - (126 - offset);
+    ring.style.strokeDashoffset = 126 * (yCountdownSecs / total);
+    label.textContent = yCountdownSecs > 0 ? yCountdownSecs + 's' : '✓';
+    if (yCountdownSecs <= 0) { clearInterval(yCountdownInterval); }
+    yCountdownSecs--;
+  }
+  tick();
+  yCountdownInterval = setInterval(tick, 1000);
+}
+function yDrop() {
+  addLog('y-log', 'Server closed connection', 'closed');
+  ['y-state','y-header-badge','y-sidebar-badge'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (id === 'y-state') { el.textContent='CLOSED'; el.style.color='var(--closed)'; }
+    else setBadge(id, 'closed');
+  });
+  document.getElementById('y-next').textContent = '—';
+  yAttempts = 0;
+  document.getElementById('y-attempts').textContent = 0;
+  yUpdatePhaseBar(0);
+  clearTimeout(yReconnectSim);
+  yBlocked = yDur !== 0;
+  if (yBlocked) {
+    addLog('y-log', `Server: blocking reconnects${yDur>0?` for ${yDur}s`:''}`, 'blocked');
+    if (yDur > 0) {
+      yStartCountdown(yDur);
+      yBlockTimer = setTimeout(() => yRelease(), yDur * 1000);
+    } else {
+      document.getElementById('y-countdown-wrap').style.display = '';
+      document.getElementById('y-ring-label').textContent = '∞';
+      document.getElementById('y-release-btn').disabled = false;
+    }
+  }
+  document.getElementById('y-drop-btn').disabled = true;
+  ySimReconnect();
+}
+function yRelease() {
+  yBlocked = false;
+  clearTimeout(yBlockTimer);
+  clearInterval(yCountdownInterval);
+  document.getElementById('y-countdown-wrap').style.display = 'none';
+  document.getElementById('y-release-btn').disabled = true;
+  addLog('y-log', 'Server: reconnects allowed', 'state');
+}
+function ySimReconnect() {
+  if (yAttempts >= 20) { addLog('y-log','Max attempts reached — stopped','closed'); return; }
+  const p = getPhase(yAttempts);
+  const el = document.getElementById('y-state');
+  if (el) { el.textContent = 'CONNECTING'; el.style.color = 'var(--connecting)'; }
+  setBadge('y-header-badge','connecting'); setBadge('y-sidebar-badge','connecting');
+  addLog('y-log', `→ reconnecting (attempt ${yAttempts+1}, ${p.label} · ${p.delay})`, 'attempt');
+  document.getElementById('y-next').textContent = p.delay;
+  yUpdatePhaseBar(yAttempts);
+  yReconnectSim = setTimeout(() => {
+    if (yBlocked) {
+      yAttempts++;
+      document.getElementById('y-attempts').textContent = yAttempts;
+      addLog('y-log', `✗ server refused (attempt ${yAttempts})`, 'blocked');
+      ySimReconnect();
+    } else {
+      const s = document.getElementById('y-state');
+      if (s) { s.textContent = 'OPEN'; s.style.color = 'var(--open)'; }
+      setBadge('y-header-badge','open'); setBadge('y-sidebar-badge','open');
+      addLog('y-log','OPEN','state');
+      document.getElementById('y-next').textContent = '—';
+      yAttempts = 0; document.getElementById('y-attempts').textContent = 0;
+      yUpdatePhaseBar(-1);
+      document.getElementById('y-drop-btn').disabled = false;
+    }
+  }, 800);
+}
+
+// Seed logs
+addLog('x-log','OPEN','state');
+addLog('y-log','OPEN','state');
+</script>
+</body>
+</html>

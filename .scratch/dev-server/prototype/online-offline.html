@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PROTOTYPE — Online/Offline Scenario</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a;
+      --border: #2e3250; --text: #e2e8f0; --muted: #64748b;
+      --open: #22c55e; --closed: #ef4444; --connecting: #f59e0b;
+      --accent: #6366f1; --accent-dim: #3730a3;
+      --offline: #ef4444; --online: #22c55e;
+      --btn: #2e3250; --btn-hover: #3d4369;
+    }
+    body { font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+      font-size:13px; background:var(--bg); color:var(--text);
+      height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+
+    /* shared */
+    .badge { display:inline-flex; align-items:center; gap:5px; padding:2px 9px;
+      border-radius:999px; font-size:11px; font-weight:600;
+      text-transform:uppercase; letter-spacing:.05em; }
+    .badge-dot { width:7px; height:7px; border-radius:50%; }
+    .badge.open { background:#14532d; color:var(--open); }
+    .badge.open .badge-dot { background:var(--open); }
+    .badge.connecting { background:#451a03; color:var(--connecting); }
+    .badge.connecting .badge-dot { background:var(--connecting); animation:pulse 1s infinite; }
+    .badge.closed { background:#450a0a; color:var(--closed); }
+    .badge.closed .badge-dot { background:var(--closed); }
+    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
+
+    .btn { padding:6px 14px; border-radius:6px; border:1px solid var(--border);
+      background:var(--btn); color:var(--text); cursor:pointer; font-size:12px;
+      font-weight:500; transition:all .12s; }
+    .btn:hover:not(:disabled) { background:var(--btn-hover); }
+    .btn:disabled { opacity:.35; cursor:not-allowed; }
+    .btn.danger { border-color:#7f1d1d; background:#450a0a; color:var(--closed); }
+    .btn.danger:hover:not(:disabled) { background:var(--closed); color:white; }
+    .btn.go-online { border-color:#14532d; background:#052e16; color:var(--online); }
+    .btn.go-online:hover:not(:disabled) { background:var(--online); color:#052e16; }
+
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px; }
+    .card-label { font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+      color:var(--muted); font-weight:600; margin-bottom:10px; }
+    .stat { display:flex; flex-direction:column; gap:2px; }
+    .stat-label { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+    .stat-value { font-size:16px; font-weight:700; }
+
+    .toggle-row { display:flex; align-items:center; gap:10px; cursor:pointer; width:fit-content; }
+    .toggle-track { width:36px; height:20px; border-radius:10px;
+      background:var(--btn); border:1px solid var(--border);
+      position:relative; transition:background .15s; }
+    .toggle-track.on { background:#450a0a; border-color:#7f1d1d; }
+    .toggle-knob { width:14px; height:14px; border-radius:50%; background:var(--muted);
+      position:absolute; top:2px; left:2px; transition:transform .15s, background .15s; }
+    .toggle-track.on .toggle-knob { transform:translateX(16px); background:var(--closed); }
+
+    .log { font-family:'Fira Code',monospace; font-size:11px; line-height:1.7;
+      overflow-y:auto; flex:1; min-height:0; }
+    .log-entry { display:flex; gap:8px; }
+    .log-time { color:#475569; min-width:56px; }
+    .log-ev.state { color:var(--open); }
+    .log-ev.closed { color:var(--closed); }
+    .log-ev.connecting { color:var(--connecting); }
+    .log-ev.offline-ev { color:var(--offline); }
+    .log-ev.online-ev { color:var(--online); }
+
+    /* layout shell */
+    .shell { display:flex; flex:1; min-height:0; }
+    .sidebar { width:200px; flex-shrink:0; background:var(--surface);
+      border-right:1px solid var(--border); display:flex; flex-direction:column; }
+    .sidebar-nav { padding:12px; }
+    .sidebar-label { font-size:10px; text-transform:uppercase; letter-spacing:.1em;
+      color:var(--muted); font-weight:600; margin-bottom:8px; }
+    .nav-item { display:flex; align-items:center; gap:8px; padding:7px 8px;
+      border-radius:6px; font-size:12px; font-weight:500; color:var(--muted); }
+    .nav-item.active { background:var(--accent-dim); color:white; }
+    .nav-dot { width:7px; height:7px; border-radius:50%; background:currentColor; opacity:.4; flex-shrink:0; }
+    .nav-item.active .nav-dot { opacity:1; }
+    .sidebar-status { margin-top:auto; padding:12px; border-top:1px solid var(--border); }
+    .main { flex:1; display:flex; flex-direction:column; min-height:0; }
+    .main-header { padding:12px 20px; border-bottom:1px solid var(--border);
+      background:var(--surface); flex-shrink:0;
+      display:flex; align-items:center; justify-content:space-between; }
+    .main-header h2 { font-size:14px; font-weight:600; }
+    .main-body { flex:1; display:flex; flex-direction:column; padding:16px;
+      gap:12px; min-height:0; overflow-y:auto; }
+
+    .variant { display:none; flex:1; flex-direction:column; min-height:0; }
+    .variant.active { display:flex; }
+
+    /* ── VARIANT R — TOGGLE ──────────────────────────────
+       Single "Simulate offline" toggle. The whole pane tints
+       red when offline to make the state unmissable.
+    ──────────────────────────────────────────────────── */
+    .r-main-body-offline { background:#1a0a0a !important; }
+    .offline-banner { display:none; align-items:center; gap:10px;
+      padding:10px 14px; background:#450a0a; border:1px solid #7f1d1d;
+      border-radius:8px; color:var(--closed); font-size:12px; font-weight:600; }
+    .offline-banner.visible { display:flex; }
+    .offline-banner-dot { width:8px; height:8px; border-radius:50%;
+      background:var(--closed); animation:pulse 1s infinite; flex-shrink:0; }
+
+    /* ── VARIANT S — BUTTON PAIR ─────────────────────────
+       Explicit "Go Offline" / "Come Online" as two distinct
+       buttons. Status shown as a prominent pill indicator.
+    ──────────────────────────────────────────────────── */
+    .network-indicator { display:flex; align-items:center; gap:12px; padding:14px 18px;
+      border-radius:8px; border:1px solid var(--border); background:var(--surface2);
+      transition:all .3s; }
+    .network-indicator.offline { border-color:#7f1d1d; background:#1a0505; }
+    .net-icon { font-size:24px; transition:all .3s; }
+    .net-status-label { font-size:12px; color:var(--muted); margin-bottom:2px; }
+    .net-status-value { font-size:15px; font-weight:700; color:var(--online); transition:color .3s; }
+    .network-indicator.offline .net-status-value { color:var(--offline); }
+    .net-actions { margin-left:auto; display:flex; gap:8px; }
+
+    /* switcher */
+    .switcher { position:fixed; bottom:0; left:0; right:0; z-index:9999;
+      display:flex; align-items:center; justify-content:center; gap:8px;
+      padding:10px 16px; background:#0a0c14; border-top:1px solid #2e3250; }
+    .sw-label { font-size:11px; color:var(--muted); font-weight:600; margin-right:4px; }
+    .sw-btn { padding:5px 14px; border-radius:4px; border:1px solid var(--border);
+      background:var(--surface); color:var(--muted); cursor:pointer;
+      font-size:12px; font-weight:500; transition:all .12s; }
+    .sw-btn:hover { color:var(--text); }
+    .sw-btn.active { background:var(--accent-dim); border-color:var(--accent); color:white; }
+    .sw-desc { font-size:11px; color:var(--muted); margin-left:12px; }
+    body { padding-bottom:46px; }
+  </style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════
+     VARIANT R — TOGGLE
+     One control: "Simulate offline" toggle.
+     The pane tints red when offline so the state is unmissable.
+════════════════════════════════════════════════════ -->
+<div class="variant active" id="v-R">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="sidebar-nav">
+        <div class="sidebar-label">Scenarios</div>
+        <div class="nav-item"><div class="nav-dot"></div>↺ Reconnection</div>
+        <div class="nav-item"><div class="nav-dot"></div>♡ Heartbeat</div>
+        <div class="nav-item active"><div class="nav-dot"></div>⚡ Online/Offline</div>
+      </div>
+      <div class="sidebar-status">
+        <div class="sidebar-label">Connection</div>
+        <span class="badge open" id="r-sidebar-badge"><span class="badge-dot"></span>Open</span>
+      </div>
+    </div>
+    <div class="main">
+      <div class="main-header">
+        <h2>⚡ Online / Offline</h2>
+        <span class="badge open" id="r-header-badge"><span class="badge-dot"></span>Open</span>
+      </div>
+      <div class="main-body" id="r-body">
+
+        <!-- Offline banner (hidden when online) -->
+        <div class="offline-banner" id="r-banner">
+          <div class="offline-banner-dot"></div>
+          Browser is offline — library has torn down the socket and is waiting for online event
+        </div>
+
+        <!-- Stats row -->
+        <div class="card" style="display:flex;gap:32px">
+          <div class="stat">
+            <span class="stat-label">navigator.onLine</span>
+            <span class="stat-value" id="r-online" style="color:var(--open)">true</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">ReadyState</span>
+            <span class="stat-value" id="r-state" style="color:var(--open)">OPEN</span>
+          </div>
+        </div>
+
+        <!-- Control -->
+        <div class="card">
+          <div class="card-label">Controls</div>
+          <label class="toggle-row" onclick="rToggle()">
+            <div class="toggle-track" id="r-toggle"><div class="toggle-knob"></div></div>
+            <span id="r-toggle-label">Simulate offline</span>
+          </label>
+          <p style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">
+            Dispatches a synthetic <code style="background:var(--surface2);padding:1px 4px;border-radius:3px">offline</code>
+            / <code style="background:var(--surface2);padding:1px 4px;border-radius:3px">online</code> event.
+            The library's <code style="background:var(--surface2);padding:1px 4px;border-radius:3px">handleOffline</code>
+            handler tears down the socket automatically — no manual socket close needed.
+          </p>
+        </div>
+
+        <!-- Event log -->
+        <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div class="card-label">Event log</div>
+          <div class="log" id="r-log"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════
+     VARIANT S — BUTTON PAIR
+     Two explicit buttons + a prominent network status indicator.
+════════════════════════════════════════════════════ -->
+<div class="variant" id="v-S">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="sidebar-nav">
+        <div class="sidebar-label">Scenarios</div>
+        <div class="nav-item"><div class="nav-dot"></div>↺ Reconnection</div>
+        <div class="nav-item"><div class="nav-dot"></div>♡ Heartbeat</div>
+        <div class="nav-item active"><div class="nav-dot"></div>⚡ Online/Offline</div>
+      </div>
+      <div class="sidebar-status">
+        <div class="sidebar-label">Connection</div>
+        <span class="badge open" id="s-sidebar-badge"><span class="badge-dot"></span>Open</span>
+      </div>
+    </div>
+    <div class="main">
+      <div class="main-header">
+        <h2>⚡ Online / Offline</h2>
+        <span class="badge open" id="s-header-badge"><span class="badge-dot"></span>Open</span>
+      </div>
+      <div class="main-body">
+
+        <!-- Network indicator + action buttons -->
+        <div class="network-indicator" id="s-net-indicator">
+          <span class="net-icon" id="s-net-icon">🌐</span>
+          <div>
+            <div class="net-status-label">Network</div>
+            <div class="net-status-value" id="s-net-value">Online</div>
+          </div>
+          <div class="net-actions">
+            <button class="btn danger" id="s-offline-btn" onclick="sGoOffline()">Go Offline</button>
+            <button class="btn go-online" id="s-online-btn" onclick="sGoOnline()" disabled>Come Online</button>
+          </div>
+        </div>
+
+        <!-- Stats row -->
+        <div class="card" style="display:flex;gap:32px">
+          <div class="stat">
+            <span class="stat-label">navigator.onLine</span>
+            <span class="stat-value" id="s-online" style="color:var(--open)">true</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">ReadyState</span>
+            <span class="stat-value" id="s-state" style="color:var(--open)">OPEN</span>
+          </div>
+        </div>
+
+        <!-- Event log -->
+        <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div class="card-label">Event log</div>
+          <div class="log" id="s-log"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- switcher -->
+<div class="switcher">
+  <span class="sw-label">PROTOTYPE</span>
+  <button class="sw-btn active" onclick="sw('R',this)">R — Toggle</button>
+  <button class="sw-btn" onclick="sw('S',this)">S — Button pair</button>
+  <span class="sw-desc" id="sw-desc">Single toggle; pane tints red when offline</span>
+</div>
+
+
+<script>
+const descriptions = {
+  R: 'Single toggle; pane tints red when offline',
+  S: 'Explicit Go Offline / Come Online buttons with a prominent network status card',
+};
+function sw(v, btn) {
+  document.querySelectorAll('.variant').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.sw-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('v-' + v).classList.add('active');
+  btn.classList.add('active');
+  document.getElementById('sw-desc').textContent = descriptions[v];
+}
+function now() {
+  return new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+function addLog(id, msg, cls='') {
+  const log = document.getElementById(id);
+  if (!log) return;
+  const e = document.createElement('div');
+  e.className = 'log-entry';
+  e.innerHTML = `<span class="log-time">${now()}</span><span class="log-ev ${cls}">${msg}</span>`;
+  log.appendChild(e);
+  log.scrollTop = log.scrollHeight;
+}
+function setBadge(id, cls, label) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'badge ' + cls;
+  el.innerHTML = `<span class="badge-dot"></span>${label}`;
+}
+
+// ── VARIANT R ──────────────────────────────────────────
+let rOffline = false;
+function rToggle() {
+  rOffline = !rOffline;
+  const track = document.getElementById('r-toggle');
+  track.classList.toggle('on', rOffline);
+  document.getElementById('r-toggle-label').textContent =
+    rOffline ? 'Simulate offline (active)' : 'Simulate offline';
+  const body = document.getElementById('r-body');
+  if (rOffline) {
+    body.classList.add('r-main-body-offline');
+    document.getElementById('r-banner').classList.add('visible');
+    document.getElementById('r-online').textContent = 'false';
+    document.getElementById('r-online').style.color = 'var(--closed)';
+    document.getElementById('r-state').textContent = 'CLOSED';
+    document.getElementById('r-state').style.color = 'var(--closed)';
+    setBadge('r-header-badge','closed','Closed');
+    setBadge('r-sidebar-badge','closed','Closed');
+    addLog('r-log', 'offline event → handleOffline()', 'offline-ev');
+    addLog('r-log', 'teardownSocket() — CLOSED', 'closed');
+    addLog('r-log', 'waiting for online event...', '');
+  } else {
+    body.classList.remove('r-main-body-offline');
+    document.getElementById('r-banner').classList.remove('visible');
+    document.getElementById('r-online').textContent = 'true';
+    document.getElementById('r-online').style.color = 'var(--open)';
+    document.getElementById('r-state').textContent = 'CONNECTING';
+    document.getElementById('r-state').style.color = 'var(--connecting)';
+    setBadge('r-header-badge','connecting','Connecting');
+    setBadge('r-sidebar-badge','connecting','Connecting');
+    addLog('r-log', 'online event → connect()', 'online-ev');
+    addLog('r-log', 'CONNECTING', 'connecting');
+    setTimeout(() => {
+      document.getElementById('r-state').textContent = 'OPEN';
+      document.getElementById('r-state').style.color = 'var(--open)';
+      setBadge('r-header-badge','open','Open');
+      setBadge('r-sidebar-badge','open','Open');
+      addLog('r-log', 'OPEN', 'state');
+    }, 900);
+  }
+}
+
+// ── VARIANT S ──────────────────────────────────────────
+function sGoOffline() {
+  document.getElementById('s-offline-btn').disabled = true;
+  document.getElementById('s-online-btn').disabled = false;
+  const ind = document.getElementById('s-net-indicator');
+  ind.classList.add('offline');
+  document.getElementById('s-net-icon').textContent = '📵';
+  document.getElementById('s-net-value').textContent = 'Offline';
+  document.getElementById('s-online').textContent = 'false';
+  document.getElementById('s-online').style.color = 'var(--closed)';
+  document.getElementById('s-state').textContent = 'CLOSED';
+  document.getElementById('s-state').style.color = 'var(--closed)';
+  setBadge('s-header-badge','closed','Closed');
+  setBadge('s-sidebar-badge','closed','Closed');
+  addLog('s-log', 'offline event → handleOffline()', 'offline-ev');
+  addLog('s-log', 'teardownSocket() — CLOSED', 'closed');
+  addLog('s-log', 'waiting for online event...', '');
+}
+function sGoOnline() {
+  document.getElementById('s-offline-btn').disabled = false;
+  document.getElementById('s-online-btn').disabled = true;
+  const ind = document.getElementById('s-net-indicator');
+  ind.classList.remove('offline');
+  document.getElementById('s-net-icon').textContent = '🌐';
+  document.getElementById('s-net-value').textContent = 'Online';
+  document.getElementById('s-online').textContent = 'true';
+  document.getElementById('s-online').style.color = 'var(--open)';
+  document.getElementById('s-state').textContent = 'CONNECTING';
+  document.getElementById('s-state').style.color = 'var(--connecting)';
+  setBadge('s-header-badge','connecting','Connecting');
+  setBadge('s-sidebar-badge','connecting','Connecting');
+  addLog('s-log', 'online event → connect()', 'online-ev');
+  addLog('s-log', 'CONNECTING', 'connecting');
+  setTimeout(() => {
+    document.getElementById('s-state').textContent = 'OPEN';
+    document.getElementById('s-state').style.color = 'var(--open)';
+    setBadge('s-header-badge','open','Open');
+    setBadge('s-sidebar-badge','open','Open');
+    addLog('s-log', 'OPEN', 'state');
+  }, 900);
+}
+
+// seed
+addLog('r-log','OPEN','state');
+addLog('s-log','OPEN','state');
+</script>
+</body>
+</html>
