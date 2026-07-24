@@ -139,6 +139,7 @@ export class WebsocketClient {
       enabled: heartbeat?.enabled ?? DEFAULT_HEARTBEAT_CONFIG.enabled,
       pongTimeoutMs:
         heartbeat?.pongTimeoutMs ?? DEFAULT_HEARTBEAT_CONFIG.pongTimeoutMs,
+      pingIntervalMs: heartbeat?.pingIntervalMs,
     };
     this.transformMessagePayload = transformMessagePayload ?? undefined;
 

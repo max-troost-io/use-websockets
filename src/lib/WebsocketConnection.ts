@@ -174,8 +174,8 @@ export class WebsocketConnection {
    */
   public addListener = (listener: WebsocketListener) => {
     listener.setSendToConnection(this.handleSendMessage);
-    this.connect();
     this._listeners.set(listener.key, listener);
+    this.connect();
     clearTimeout(this.closeConnectionTimeOut);
 
     if (this._socket?.readyState === WebSocket.OPEN && listener.onOpen) {
@@ -745,13 +745,13 @@ export class WebsocketConnection {
   };
 
   /**
-   * Schedules the next heartbeat ping after the configured interval (40 seconds).
-   * @see {@link getPingTime}
+   * Schedules the next heartbeat ping after the configured interval.
+   * Uses {@link HeartbeatConfig.pingIntervalMs} if set, otherwise falls back to {@link getPingTime} (40s).
    */
   private schedulePing = () => {
     this.pingTimeOut = setTimeout(() => {
       this.sendPing();
-    }, getPingTime());
+    }, this._client.heartbeat.pingIntervalMs ?? getPingTime());
   };
 
   /**

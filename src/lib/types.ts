@@ -457,6 +457,8 @@ export interface HeartbeatConfig {
   enabled: boolean;
   /** Time in ms to wait for a pong before considering the connection dead. Default: 10000 */
   pongTimeoutMs: number;
+  /** Interval in ms between ping messages. Default: 40000 (40s). Override in tests/dev-server for faster heartbeat cycles. */
+  pingIntervalMs?: number;
 }
 
 /** Overrides for the global WebSocket configuration. All fields are optional. */

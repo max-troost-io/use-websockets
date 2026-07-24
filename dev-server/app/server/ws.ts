@@ -1,0 +1,50 @@
+'use server'
+import type { WebSocketServer, WebSocket } from 'ws'
+
+const g = globalThis as Record<string, unknown>
+
+interface WsState {
+  isBlockingReconnects: boolean
+  blockUntil: number | null
+  isIgnoringPings: boolean
+}
+
+export function getState(): WsState {
+  if (!g['__wsState']) {
+    g['__wsState'] = { isBlockingReconnects: false, blockUntil: null, isIgnoringPings: false }
+  }
+  return g['__wsState'] as WsState
+}
+
+export function getWss(): WebSocketServer | null {
+  return (g['__wss'] as WebSocketServer | undefined) ?? null
+}
+
+export function dropAllClients() {
+  const wss = getWss()
+  wss?.clients.forEach((ws: WebSocket) => {
+    ws.close(1001, 'Going Away')
+  })
+}
+
+export function activateBlock(blockForMs: number | null) {
+  const state = getState()
+  state.isBlockingReconnects = true
+  state.blockUntil = blockForMs !== null ? Date.now() + blockForMs : null
+  if (blockForMs !== null) {
+    setTimeout(() => {
+      state.isBlockingReconnects = false
+      state.blockUntil = null
+    }, blockForMs)
+  }
+}
+
+export function deactivateBlock() {
+  const state = getState()
+  state.isBlockingReconnects = false
+  state.blockUntil = null
+}
+
+export function setIgnorePings(ignore: boolean) {
+  getState().isIgnoringPings = ignore
+}
