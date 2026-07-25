@@ -23,6 +23,7 @@ const NAV_ITEMS = [
   { to: '/reconnection', label: '↺ Reconnection' },
   { to: '/heartbeat', label: '♥ Heartbeat' },
   { to: '/online-offline', label: '⚡ Online/Offline' },
+  { to: '/dependent-subscriptions', label: '⛓ Dependent Subs' },
 ] as const
 
 // Inner component that uses hooks — must be inside WebsocketClientProvider

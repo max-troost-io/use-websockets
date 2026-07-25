@@ -3,6 +3,7 @@ import {
   activateBlock,
   deactivateBlock,
   dropAllClients,
+  pushNewSession,
   setIgnorePings,
 } from './ws'
 
@@ -24,4 +25,9 @@ export const setIgnoreHeartbeats = createServerFn({ method: 'POST' })
   .validator((data: { ignore: boolean }) => data)
   .handler(async ({ data }) => {
     setIgnorePings(data.ignore)
+  })
+
+export const triggerNewSession = createServerFn({ method: 'POST' })
+  .handler(async () => {
+    pushNewSession()
   })

@@ -61,6 +61,32 @@ function wsServerPlugin(): Plugin {
               if (!state.isIgnoringPings) {
                 ws.send(JSON.stringify({ uri: 'ping', body: msg.body }))
               }
+              return
+            }
+
+            // Dependent-subscriptions scenario
+            if (msg.method === 'subscribe' && msg.uri === '/session') {
+              const sessionId = Math.random().toString(36).slice(2, 10).toUpperCase()
+              setTimeout(() => {
+                if (ws.readyState === 1)
+                  ws.send(JSON.stringify({ uri: '/session', body: { sessionId } }))
+              }, 150)
+              return
+            }
+            if (msg.method === 'subscribe' && msg.uri === '/details') {
+              const { sessionId } = (msg.body ?? {}) as { sessionId?: string }
+              setTimeout(() => {
+                if (ws.readyState === 1)
+                  ws.send(JSON.stringify({
+                    uri: '/details',
+                    body: {
+                      sessionId: sessionId ?? '—',
+                      items: [`Alpha-${sessionId}`, `Beta-${sessionId}`, `Gamma-${sessionId}`],
+                      fetchedAt: new Date().toISOString(),
+                    },
+                  }))
+              }, 250)
+              return
             }
           } catch {
             // ignore malformed messages

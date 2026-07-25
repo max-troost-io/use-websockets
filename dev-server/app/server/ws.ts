@@ -48,3 +48,14 @@ export function deactivateBlock() {
 export function setIgnorePings(ignore: boolean) {
   getState().isIgnoringPings = ignore
 }
+
+/** Push a fresh session token to all connected clients (dependent-subscriptions scenario). */
+export function pushNewSession() {
+  const wss = getWss()
+  if (!wss) return
+  const sessionId = Math.random().toString(36).slice(2, 10).toUpperCase()
+  wss.clients.forEach((ws: WebSocket) => {
+    if (ws.readyState === 1)
+      ws.send(JSON.stringify({ uri: '/session', body: { sessionId } }))
+  })
+}

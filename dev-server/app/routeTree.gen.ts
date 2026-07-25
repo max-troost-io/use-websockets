@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DependentSubscriptionsRouteImport } from './routes/dependent-subscriptions'
 import { Route as HeartbeatRouteImport } from './routes/heartbeat'
 import { Route as OnlineOfflineRouteImport } from './routes/online-offline'
 import { Route as ReconnectionRouteImport } from './routes/reconnection'
@@ -17,6 +18,11 @@ import { Route as ReconnectionRouteImport } from './routes/reconnection'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DependentSubscriptionsRoute = DependentSubscriptionsRouteImport.update({
+  id: '/dependent-subscriptions',
+  path: '/dependent-subscriptions',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HeartbeatRoute = HeartbeatRouteImport.update({
@@ -37,12 +43,14 @@ const ReconnectionRoute = ReconnectionRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/dependent-subscriptions': typeof DependentSubscriptionsRoute
   '/heartbeat': typeof HeartbeatRoute
   '/online-offline': typeof OnlineOfflineRoute
   '/reconnection': typeof ReconnectionRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/dependent-subscriptions': typeof DependentSubscriptionsRoute
   '/heartbeat': typeof HeartbeatRoute
   '/online-offline': typeof OnlineOfflineRoute
   '/reconnection': typeof ReconnectionRoute
@@ -50,20 +58,38 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/dependent-subscriptions': typeof DependentSubscriptionsRoute
   '/heartbeat': typeof HeartbeatRoute
   '/online-offline': typeof OnlineOfflineRoute
   '/reconnection': typeof ReconnectionRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/heartbeat' | '/online-offline' | '/reconnection'
+  fullPaths:
+    | '/'
+    | '/dependent-subscriptions'
+    | '/heartbeat'
+    | '/online-offline'
+    | '/reconnection'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/heartbeat' | '/online-offline' | '/reconnection'
-  id: '__root__' | '/' | '/heartbeat' | '/online-offline' | '/reconnection'
+  to:
+    | '/'
+    | '/dependent-subscriptions'
+    | '/heartbeat'
+    | '/online-offline'
+    | '/reconnection'
+  id:
+    | '__root__'
+    | '/'
+    | '/dependent-subscriptions'
+    | '/heartbeat'
+    | '/online-offline'
+    | '/reconnection'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DependentSubscriptionsRoute: typeof DependentSubscriptionsRoute
   HeartbeatRoute: typeof HeartbeatRoute
   OnlineOfflineRoute: typeof OnlineOfflineRoute
   ReconnectionRoute: typeof ReconnectionRoute
@@ -76,6 +102,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dependent-subscriptions': {
+      id: '/dependent-subscriptions'
+      path: '/dependent-subscriptions'
+      fullPath: '/dependent-subscriptions'
+      preLoaderRoute: typeof DependentSubscriptionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/heartbeat': {
@@ -104,6 +137,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DependentSubscriptionsRoute: DependentSubscriptionsRoute,
   HeartbeatRoute: HeartbeatRoute,
   OnlineOfflineRoute: OnlineOfflineRoute,
   ReconnectionRoute: ReconnectionRoute,
