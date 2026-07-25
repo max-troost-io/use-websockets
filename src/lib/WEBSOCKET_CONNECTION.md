@@ -11,30 +11,15 @@ A robust WebSocket connection manager with automatic reconnection, heartbeat mon
 
 ### Internal Sections
 
-- [Features](#features)
 - [Architecture Overview](#architecture-overview)
 - [Connection Lifecycle](#connection-lifecycle)
 - [Message Flow](#message-flow)
 - [URI API Lifecycle](#uri-api-lifecycle)
-- [Usage Examples](#usage-examples)
-- [App-Level Setup](#app-level-setup)
 - [Configuration](#configuration)
+- [Events and Monitoring](#events-and-monitoring)
 - [API Reference](#api-reference)
-- [Dependencies](#dependencies)
 
 ---
-
-## Features
-
-- **Singleton Connection Pattern**: One connection per URL shared across components
-- **Key-Based API Management**: Subscription and Message APIs identified by unique keys; components with the same key share the instance
-- **Automatic Reconnection**: Three-phase exponential backoff strategy
-- **Heartbeat Monitoring**: Ping/pong mechanism (40s interval) to detect stale connections
-- **URI-Based Routing**: Multiple subscriptions over a single connection
-- **React Integration**: TanStack Store for reactive data updates
-- **Online/Offline Detection**: Browser connectivity change handling
-- **Two API Types**: **Subscription** (streaming) and **Message** (request/response)
-- **Event Logging**: Optional `connectionEvent` callback for connection lifecycle events
 
 ## Architecture Overview
 
@@ -133,6 +118,9 @@ classDiagram
 
     class WebsocketMessageApi {
         +key: string
+        +url: string
+        +isEnabled: boolean
+        +options: WebsocketMessageOptions
         +sendMessage(uri, method, body?, options?)
         +sendMessageNoWait(uri, method, body?)
         +registerHook(id)
@@ -299,21 +287,21 @@ sequenceDiagram
     Connection->>Connection: reconnectTries++
     Connection->>Connection: Calculate backoff time
 
-    alt reconnectTries > NOTIFICATION_THRESHOLD (10)
+    opt reconnectTries > NOTIFICATION_THRESHOLD (10)
         Connection->>Callback: reconnecting event
     end
 
     Connection->>Connection: wait(backoffTime)
 
-    alt Browser offline during wait
+    opt Browser offline during wait
         Browser->>Connection: offline event
-        Connection->>Browser: Wait for 'online' event
+        Connection->>Browser: Wait for online event
         Browser-->>Connection: online event
     end
 
     alt reconnectTries >= MAX_RETRY_ATTEMPTS (20)
         Connection->>Callback: max-retries-exceeded event
-        Note over Connection: Stop auto-reconnect; app may call reconnectAllConnections()
+        Note over Connection: Auto-reconnect stopped, call reconnectAllConnections() to retry
     else retries < MAX
         Connection->>Socket: new WebSocket(url)
     end
@@ -408,6 +396,8 @@ sequenceDiagram
 
 ### Options Update Flow
 
+Applies to both `WebsocketSubscriptionApi` (via `useWebsocketSubscription`) and `WebsocketMessageApi` (via `useWebsocketMessage`). Both hooks sync options with a `useIsomorphicLayoutEffect` after every render where options deep-changed.
+
 ```mermaid
 flowchart TD
     Start([Options changed]) --> CheckEqual{Deep equal<br/>to current?}
@@ -415,20 +405,23 @@ flowchart TD
     CheckEqual -->|Yes| End1([No action])
     CheckEqual -->|No| UpdateOptions[Update options]
 
-    UpdateOptions --> CheckBody{Body changed<br/>OR enabled<br/>became true?}
+    UpdateOptions --> ApiType{API type?}
 
-    CheckBody -->|Yes| Subscribe[Call subscribe<br/>with new body]
-    CheckBody -->|No| CheckDisable{Enabled changed<br/>to false?}
+    ApiType -->|SubscriptionApi| CheckConnected{Body changed OR<br/>enabled became true?}
+    ApiType -->|MessageApi| UpdateFields[Update config fields only<br/>no lifecycle side effects]
 
-    CheckDisable -->|Yes| CheckWasEnabled{Was enabled<br/>before AND<br/>subscription open?}
+    CheckConnected -->|Yes AND connected=true| Resubscribe[_resubscribeIfConnected<br/>subscribe with new body]
+    CheckConnected -->|No OR connected=false| CheckDisable{Enabled changed<br/>to false?}
+
+    CheckDisable -->|Yes, was enabled AND subscribed| Unsubscribe[_handleUnsubscribeOnDisable<br/>send unsubscribe message]
     CheckDisable -->|No| End3([No action])
 
-    CheckWasEnabled -->|Yes| Unsubscribe[Call unsubscribe]
-    CheckWasEnabled -->|No| End4([No action])
-
-    Subscribe --> End6([Subscription updated])
-    Unsubscribe --> End7([Unsubscribed])
+    Resubscribe --> End6([Subscription updated])
+    Unsubscribe --> End7([Hook then calls disconnect<br/>for registry cleanup])
+    UpdateFields --> End8([Config updated])
 ```
+
+> **Note:** `_resubscribeIfConnected` only fires when `connected=true`. When not connected, `addListener→onOpen` handles subscription once the socket opens — preventing a double-subscribe.
 
 ## Browser Online/Offline Handling
 
@@ -459,134 +452,6 @@ sequenceDiagram
     Connection->>Browser: addEventListener('offline')
     end
 ```
-
-## Usage Examples
-
-### Basic Subscription (Streaming Data)
-
-```typescript
-import { useWebsocketSubscription, useSelector } from '@mono-fleet/use-websocket';
-
-function VoyageList() {
-  const voyageApi = useWebsocketSubscription<Voyage[], VoyageFilters>({
-    key: 'voyages-list',
-    url: '/api',
-    uri: '/api/voyages',
-    body: { status: 'active' },
-    onMessage: ({ data }) => console.log('Received:', data),
-    onSubscribe: ({ uri }) => console.log('Subscribed to:', uri)
-  });
-
-  const voyages = useSelector(voyageApi.store, (s) => s.message);
-  const pending = useSelector(voyageApi.store, (s) => s.pendingSubscription);
-
-  if (pending) return <Skeleton />;
-  return <div>{/* Render voyages */}</div>;
-}
-```
-
-### Accessing Store from Child Components
-
-```typescript
-import { useWebsocketSubscription, useWebsocketSubscriptionByKey, useSelector } from '@mono-fleet/use-websocket';
-
-// Parent: Creates the subscription
-function VoyageListContainer() {
-  useWebsocketSubscription<Voyage[]>({
-    key: 'voyages-list',
-    url: '/api',
-    uri: '/api/voyages'
-  });
-  return <VoyageList />;
-}
-
-// Child: Accesses the store by key (use useSelector with selector)
-function VoyageList() {
-  const voyagesStore = useWebsocketSubscriptionByKey<Voyage[]>('voyages-list');
-  const voyages = useSelector(voyagesStore, (s) => s.message);
-  const activeVoyages = useSelector(voyagesStore, (s) =>
-    (s.message ?? []).filter((v) => v.status === 'active')
-  );
-  return <div>{/* Render active voyages */}</div>;
-}
-
-// Child: Voyage count
-function VoyageCount() {
-  const voyagesStore = useWebsocketSubscriptionByKey<Voyage[]>('voyages-list');
-  const count = useSelector(voyagesStore, (s) => (s.message ?? []).length);
-  return <div>Total: {count}</div>;
-}
-```
-
-### Message API (Request/Response)
-
-```typescript
-import { useWebsocketMessage } from '@mono-fleet/use-websocket';
-
-function VoyageActions() {
-  const api = useWebsocketMessage<ModifyVoyageUim, ModifyVoyageUim>({
-    key: 'voyages/modify',
-    url: '/api',
-    responseTimeoutMs: 5000
-  });
-
-  const handleValidate = async () => {
-    const result = await api.sendMessage('voyages/modify/validate', 'post', formValues);
-    // ...
-  };
-
-  const handleMarkRead = () => {
-    api.sendMessageNoWait(`notifications/${id}/read`, 'post');
-  };
-
-  return (
-    <>
-      <button onClick={handleValidate}>Validate</button>
-      <button onClick={handleMarkRead}>Mark Read</button>
-    </>
-  );
-}
-```
-
-### Store Shape (WebsocketSubscriptionStore)
-
-```typescript
-interface WebsocketSubscriptionStore<TData> {
-  message: TData | undefined;       // Latest data from server
-  subscribed: boolean;              // Subscription confirmed
-  pendingSubscription: boolean;      // Subscribe sent, waiting for first response
-  subscribedAt: number | undefined;
-  receivedAt: number | undefined;
-  connected: boolean;               // WebSocket open
-  messageError: WebsocketTransportError | undefined;
-  serverError: WebsocketServerError<unknown> | undefined;
-}
-```
-
-## App-Level Setup
-
-Wrap your app with `WebsocketClientProvider` and pass a `WebsocketClient` instance. Configure the client with `connectionEvent` for logging and `reconnectAllConnections()` when the WebSocket URL changes (e.g. auth context):
-
-```tsx
-import { WebsocketClient, WebsocketClientProvider } from '@mono-fleet/use-websocket';
-
-const websocketClient = new WebsocketClient({
-  connectionEvent: (event) => {
-    // Log events: connect, close, error, reconnecting, max-retries-exceeded, etc.
-  }
-});
-
-function App() {
-  return (
-    <WebsocketClientProvider client={websocketClient}>
-      <YourApp />
-    </WebsocketClientProvider>
-  );
-}
-```
-
-- **connectionEvent**: Optional callback for connection lifecycle events (connect, close, error, reconnecting, max-retries-exceeded, pong-timeout, etc.)
-- **reconnectAllConnections()**: Call when the WebSocket URL changes to re-establish all connections with the new URL
 
 ## Configuration
 
@@ -656,7 +521,7 @@ Selects a value from a WebSocket subscription store with reactive updates. Use w
 
 #### `useWebsocketMessage<TData, TBody>(options): WebsocketMessageApiPublic`
 
-Manages a WebSocket Message API for request/response messaging. Use for one-off commands (validate, modify, mark read). Provides `sendMessage(uri, method, body?, options?)` and `sendMessageNoWait(uri, method, body?)`.
+Manages a WebSocket Message API for request/response messaging. Use for one-off commands (validate, modify, mark read). Syncs `options` to the API after each render where options changed (mirrors `useWebsocketSubscription`). Provides `sendMessage(uri, method, body?, options?)` and `sendMessageNoWait(uri, method, body?)`.
 
 ### WebsocketClient Class
 
@@ -707,7 +572,7 @@ Manages a WebSocket Message API for request/response messaging. Use for one-off 
 - `sendMessage(message: SendMessage): void` — Sends a custom message
 - `registerHook(id: string): void` — Registers a hook using this API
 - `unregisterHook(id: string, onRemove: () => void): void` — Unregisters; calls `onRemove` when last hook (after delay)
-- `disconnect(onRemoveFromSocket: () => void): void` — Disconnects and invokes callback after delay
+- `disconnect(onRemoveFromSocket: () => void): void` — Schedules state cleanup and registry removal after `INITIATOR_REMOVAL_DELAY_MS`; does **not** send an unsubscribe (the options setter's `_handleUnsubscribeOnDisable` handles that)
 - `reset(): void` — Resets state (called on URL change/reconnection)
 
 #### Public Properties
@@ -727,13 +592,14 @@ Manages a WebSocket Message API for request/response messaging. Use for one-off 
 - `reset(): void` — Cancels pending requests
 - `registerHook(id: string): void` — Registers a hook
 - `unregisterHook(id: string, onRemove: () => void): void` — Unregisters; calls `onRemove` when last hook
-- `disconnect(onRemoveFromSocket: () => void): void` — Disconnects and invokes callback
+- `disconnect(onRemoveFromSocket: () => void): void` — Schedules state cleanup and registry removal; does **not** send an unsubscribe message (the options setter handles that)
 
 #### Public Properties
 
 - `key: string` — Unique identifier
 - `url: string` — WebSocket URL
 - `isEnabled: boolean` — Whether this API is enabled
+- `options: WebsocketMessageOptions` (setter) — Updates config fields; deep-equal guarded; no lifecycle side effects
 
 ### Internal Helpers (websocketClient.helpers)
 
@@ -743,12 +609,6 @@ These functions are used internally by the hooks and are not exported from the p
 - `createWebsocketMessageApi(client, key, options)` — Creates or returns WebsocketMessageApi singleton
 - `removeWebsocketListenerFromConnection(client, listener)` — Removes listener from connection and client
 
-## Dependencies
-
-- `@tanstack/react-store`: Reactive state management
-- `@tanstack/store`: Core store implementation
-- `fast-equals`: Deep equality comparison
-
 ## License
 
-Part of the mono-fleet monorepo.
+MIT

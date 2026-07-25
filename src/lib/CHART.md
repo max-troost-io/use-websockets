@@ -14,11 +14,14 @@ All routes start at React hooks defined in `WebsocketHook.ts`. This chart shows 
 ## Full Chart
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'background': '#666', 'primaryTextColor': '#1a1a1a', 'primaryColor': '#e0e0e0', 'lineColor': '#fff', 'secondaryColor': '#d5d5d5', 'tertiaryColor': '#ebebeb', 'clusterBkg': '#666', 'clusterBorder': '#888', 'clusterText': '#fff', 'titleColor': '#fff' }}}%%
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#374151', 'primaryTextColor': '#f9fafb', 'lineColor': '#94a3b8', 'secondaryColor': '#1f2937', 'tertiaryColor': '#4b5563', 'clusterBkg': '#1f2937', 'clusterBorder': '#6b7280' }}}%%
 flowchart TB
-    classDef chartTitle font-size:32px
-    subgraph chart["WebSocket Hooks Flow"]
-        subgraph Hooks["React Hooks (WebsocketHook.ts)"]
+
+    %% ─── Node declarations ──────────────────────────────────────────
+    %% Each node declared exactly once, inside its subgraph.
+    %% All edges are below, outside any subgraph.
+
+    subgraph Hooks["React Hooks (WebsocketHook.ts)"]
         useSub[useWebsocketSubscription]
         useSubByKey[useWebsocketSubscriptionByKey]
         useMsg[useWebsocketMessage]
@@ -26,52 +29,36 @@ flowchart TB
 
     subgraph useSubFlow["useWebsocketSubscription Flow"]
         createSubscriptionApi[createWebsocketSubscriptionApi]
-        useLifecycle1[useWebsocketLifecycle]
-        syncOptions[Sync options via layout effect]
-        useSub --> createSubscriptionApi
-        useSub --> useLifecycle1
-        useSub --> syncOptions
-        useSub -->|return| subApi[WebsocketSubscriptionApiPublic]
+        syncSubOptions[Sync options via layout effect]
+        subApi[WebsocketSubscriptionApiPublic]
     end
 
     subgraph useSubByKeyFlow["useWebsocketSubscriptionByKey Flow"]
-        getListener[client.getListener key subscription]
-        checkKey{Listener exists<br/>for key?}
+        getListener[client.getListener - subscription]
+        checkKey{Listener exists?}
         returnStore[Return subscription.store]
         fallbackStore[Return fallbackStore]
-        useSubByKey --> getListener
-        getListener --> checkKey
-        checkKey -->|yes| returnStore
-        checkKey -->|no| fallbackStore
     end
 
     subgraph useMsgFlow["useWebsocketMessage Flow"]
         createMsgApi[createWebsocketMessageApi]
-        useLifecycle2[useWebsocketLifecycle]
-        useMsg --> createMsgApi
-        useMsg --> useLifecycle2
-        useMsg -->|return| msgApi[WebsocketMessageApiPublic]
+        syncMsgOptions[Sync options via layout effect]
+        msgApi[WebsocketMessageApiPublic]
     end
 
-    subgraph lifecycle["useWebsocketLifecycle (shared)"]
+    subgraph lifecycle["useWebsocketLifecycle - shared"]
+        useLifecycle1[useWebsocketLifecycle - sub]
+        useLifecycle2[useWebsocketLifecycle - msg]
         layout1{enabled !== false?}
         addConnection[client.addConnection]
         addListener[connection.addListener]
         listenerDisconnect[listener.disconnect]
-        layout2[client.getConnection?.replaceUrl]
+        layout2[connection.replaceUrl on url change]
         effect1[registerHook]
         effect2[unregisterHook on cleanup]
-        useLifecycle1 --> layout1
-        useLifecycle2 --> layout1
-        layout1 -->|yes| addConnection
-        addConnection --> addListener
-        layout1 -->|no| listenerDisconnect
-        layout2 -->|url changed| replaceUrlFlow
-        layout1 --> effect1
-        effect1 --> effect2
     end
 
-    subgraph connection["WebsocketConnection (via WebsocketClient.addConnection)"]
+    subgraph connection["WebsocketConnection"]
         getExisting{Connection exists?}
         newConn[new WebsocketConnection]
         connect[connect]
@@ -79,78 +66,123 @@ flowchart TB
         handleOpen[handleOpen]
         notifyListeners[Notify listeners.onOpen]
         schedulePing{heartbeat.enabled?}
-        addConnection --> getExisting
-        getExisting -->|yes| addListener
-        getExisting -->|no| newConn
-        newConn --> addListener
-        addListener --> connect
-        connect --> wsOpen
-        wsOpen --> handleOpen
-        handleOpen --> notifyListeners
-        handleOpen --> schedulePing
-        schedulePing -->|yes| schedulePingTimer[schedulePing]
-        schedulePing -.->|no pong| pongTimeout
-        wsOpen -.->|message event| handleMsg
+        schedulePingTimer[schedulePing]
     end
 
-    subgraph happyMessage["Happy: Incoming Message"]
+    subgraph happyMessage["Incoming Message"]
         handleMsg[handleMessage]
         parseMsg[JSON.parse]
         validMsg{Valid message?}
-        isPing{uri === 'ping'?}
+        isPing{uri === ping?}
+        clearPong[clearPongTimeout / schedulePing]
         isError{isErrorMethod?}
         routeMsg[forEachMatchingListener]
         onMessage[listener.onMessage / deliverMessage]
-        handleMsg --> parseMsg
-        parseMsg --> validMsg
-        validMsg -->|yes| isPing
-        isPing -->|yes| clearPong[clearPongTimeout, schedulePing]
-        isPing -->|no| isError
-        isError -->|no| routeMsg
-        routeMsg --> onMessage
     end
 
-    subgraph errors["Error Flows"]
-        invalidMsg[connectionEvent invalid-message]
+    subgraph errorFlow["Errors and Reconnection"]
+        invalidMsg[connectionEvent - invalid-message]
         onErrorTransport[listener.onError transport]
-        parseErr[connectionEvent parse-error]
-        serverErr[connectionEvent message-error]
+        parseErr[connectionEvent - parse-error]
+        serverErr[connectionEvent - message-error]
         onMsgErr[listener.onMessageError]
         wsErr[handleError]
         handleClose[handleClose]
-        reconnectable{Reconnectable<br/>close code?}
+        reconnectable{Reconnectable close code?}
         attemptReconnect[attemptReconnection]
         maxRetries{retries >= MAX?}
-        showMaxRetries[connectionEvent max-retries-exceeded]
+        showMaxRetries[connectionEvent - max-retries-exceeded]
         deferOffline[deferReconnectionUntilOnline]
-        pongTimeout[connectionEvent pong-timeout]
+        pongTimeout[connectionEvent - pong-timeout]
         teardown[teardownSocket]
         replaceUrlFlow[replaceUrl]
         teardownReconnect[teardownAndReconnect]
         offline[handleOffline]
         online[handleOnline]
         onlineReconnect[handleOnlineForReconnection]
+        waitOnline[wait for online]
+        waitBackoff[wait backoff]
+        cleanup[cleanupConnection]
     end
 
-    waitOnline -.->|online after offline| online
-    online --> connect
+    subgraph disconnectFlow["Disconnect Flow"]
+        removeListener[removeWebsocketListenerFromConnection]
+        connectionRemove[connection.removeListener]
+        clientRemove[client.removeListener]
+        scheduleCleanup[scheduleConnectionCleanup]
+        unregisterHook[unregisterHook]
+    end
+
+    %% ─── Edges ──────────────────────────────────────────────────────
+
+    %% Subscription hook
+    useSub --> createSubscriptionApi
+    useSub --> syncSubOptions
+    useSub --> useLifecycle1
+    useSub -->|return| subApi
+
+    %% ByKey hook
+    useSubByKey --> getListener
+    getListener --> checkKey
+    checkKey -->|yes| returnStore
+    checkKey -->|no| fallbackStore
+
+    %% Message hook
+    useMsg --> createMsgApi
+    useMsg --> syncMsgOptions
+    useMsg --> useLifecycle2
+    useMsg -->|return| msgApi
+
+    %% Lifecycle
+    useLifecycle1 --> layout1
+    useLifecycle2 --> layout1
+    layout1 -->|yes| addConnection
+    layout1 -->|no| listenerDisconnect
+    layout2 --> teardownReconnect
+    layout1 --> effect1
+    effect1 --> effect2
+
+    %% Lifecycle → Connection
+    addConnection --> getExisting
+    getExisting -->|yes| addListener
+    getExisting -->|no| newConn
+    newConn --> addListener
+    addListener --> connect
+    connect --> wsOpen
+    wsOpen --> handleOpen
+    handleOpen --> notifyListeners
+    handleOpen --> schedulePing
+    schedulePing -->|yes| schedulePingTimer
+    schedulePing -.->|no pong| pongTimeout
+    wsOpen -.->|message event| handleMsg
+
+    %% Happy message path
+    handleMsg --> parseMsg
+    parseMsg --> validMsg
+    validMsg -->|yes| isPing
     validMsg -->|no| invalidMsg
+    isPing -->|yes| clearPong
+    isPing -->|no| isError
+    isError -->|no| routeMsg
+    isError -->|yes| serverErr
+    routeMsg --> onMessage
+
+    %% Error paths
     invalidMsg --> onErrorTransport
     parseMsg -.->|catch| parseErr
     parseErr --> onErrorTransport
-    isError -->|yes| serverErr
     serverErr --> onMsgErr
     wsOpen -.->|error event| wsErr
     wsErr --> onErrorTransport
     wsOpen -.->|close event| handleClose
     handleClose --> reconnectable
     reconnectable -->|yes| attemptReconnect
-    reconnectable -->|no| cleanup[cleanupConnection]
+    reconnectable -->|no| cleanup
     attemptReconnect --> maxRetries
     maxRetries -->|yes| showMaxRetries
     maxRetries -->|no| deferOffline
-    deferOffline -->|offline| waitOnline[wait for online]
-    deferOffline -->|online| waitBackoff[wait backoff]
+    deferOffline -->|offline| waitOnline
+    deferOffline -->|online| waitBackoff
     waitBackoff --> connect
     waitOnline -.->|online event| onlineReconnect
     onlineReconnect --> attemptReconnect
@@ -160,31 +192,30 @@ flowchart TB
     teardownReconnect --> connect
     offline --> teardown
     teardown --> waitOnline
+    waitOnline -.->|online after offline| online
+    online --> connect
 
-    subgraph disconnectFlow["Disconnect Flow"]
-        listenerDisconnect --> removeListener[removeWebsocketListenerFromConnection]
-        removeListener --> connectionRemove[connection.removeListener]
-        removeListener --> clientRemove[client.removeListener]
-        connectionRemove --> scheduleCleanup[scheduleConnectionCleanup]
-        effect2 -->|unmount cleanup| unregisterHook[unregisterHook]
-        unregisterHook -->|last hook, INITIATOR_REMOVAL_DELAY_MS| removeListener
-    end
-    end
+    %% Disconnect flow
+    listenerDisconnect --> removeListener
+    removeListener --> connectionRemove
+    removeListener --> clientRemove
+    connectionRemove --> scheduleCleanup
+    effect2 -->|unmount| unregisterHook
+    unregisterHook -->|last hook| removeListener
 
-    class chart chartTitle
-    style chart fill:#333,stroke:#000,stroke-width:3px
-    style useSub fill:#1b5e20,stroke:#0d3d0d,color:#fff
-    style useSubByKey fill:#1b5e20,stroke:#0d3d0d,color:#fff
-    style useMsg fill:#1b5e20,stroke:#0d3d0d,color:#fff
-    style onMessage fill:#2e7d32,stroke:#1b5e20,color:#fff
-    style returnStore fill:#2e7d32,stroke:#1b5e20,color:#fff
-    style subApi fill:#2e7d32,stroke:#1b5e20,color:#fff
-    style msgApi fill:#2e7d32,stroke:#1b5e20,color:#fff
-    style invalidMsg fill:#b71c1c,stroke:#7f0000,color:#fff
-    style parseErr fill:#b71c1c,stroke:#7f0000,color:#fff
-    style serverErr fill:#b71c1c,stroke:#7f0000,color:#fff
-    style wsErr fill:#b71c1c,stroke:#7f0000,color:#fff
-    style showMaxRetries fill:#b71c1c,stroke:#7f0000,color:#fff
+    %% Styling
+    style useSub fill:#16a34a,stroke:#15803d,color:#fff
+    style useSubByKey fill:#16a34a,stroke:#15803d,color:#fff
+    style useMsg fill:#16a34a,stroke:#15803d,color:#fff
+    style onMessage fill:#15803d,stroke:#166534,color:#fff
+    style returnStore fill:#15803d,stroke:#166534,color:#fff
+    style subApi fill:#15803d,stroke:#166534,color:#fff
+    style msgApi fill:#15803d,stroke:#166534,color:#fff
+    style invalidMsg fill:#dc2626,stroke:#b91c1c,color:#fff
+    style parseErr fill:#dc2626,stroke:#b91c1c,color:#fff
+    style serverErr fill:#dc2626,stroke:#b91c1c,color:#fff
+    style wsErr fill:#dc2626,stroke:#b91c1c,color:#fff
+    style showMaxRetries fill:#dc2626,stroke:#b91c1c,color:#fff
 ```
 
 ## Legend
@@ -197,14 +228,15 @@ flowchart TB
 
 ## Hook Entry Points
 
-1. **useWebsocketSubscription** → createWebsocketSubscriptionApi (useState) + useWebsocketLifecycle + sync options → WebsocketSubscriptionApiPublic
+1. **useWebsocketSubscription** → createWebsocketSubscriptionApi (useState) + sync options via layout effect + useWebsocketLifecycle → WebsocketSubscriptionApiPublic
 2. **useWebsocketSubscriptionByKey** → client.getListener(key, 'subscription') → subscription.store or fallbackStore
-3. **useWebsocketMessage** → createWebsocketMessageApi (useState) + useWebsocketLifecycle → WebsocketMessageApiPublic
+3. **useWebsocketMessage** → createWebsocketMessageApi (useState) + sync options via layout effect + useWebsocketLifecycle → WebsocketMessageApiPublic
 
 ## Key Flows
 
 - **Happy**: Hook mounts → lifecycle → client.addConnection → addListener → connect → open → onOpen → messages routed via forEachMatchingListener → onMessage/deliverMessage
 - **URL change**: layout effect watches url → client.getConnection(url)?.replaceUrl(url) → teardownAndReconnect → connect with new URL
-- **Enabled=false**: listener.disconnect → removeWebsocketListenerFromConnection
+- **Options sync**: Both `useWebsocketSubscription` and `useWebsocketMessage` sync their options to the API via a `useIsomorphicLayoutEffect` after each render where options changed (deep-compared). Subscription API re-subscribes on body/enabled change only when already connected (`_resubscribeIfConnected`); Message API updates config fields only.
+- **Enabled=false**: options setter calls unsubscribe (SubscriptionApi) → hook calls listener.disconnect → removeWebsocketListenerFromConnection
 - **Errors**: invalid/parse/server → connectionEvent + onError/onMessageError; close → reconnect or max retries; offline → defer until online; pong timeout → teardown → attemptReconnection
 - **Manual retry**: WebsocketClient.reconnectAllConnections() → each connection.reconnect() → teardownAndReconnect → connect

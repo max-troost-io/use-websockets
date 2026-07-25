@@ -161,7 +161,7 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
     const previousOptions = this._options;
     this._options = updatedOptions;
 
-    this._handleSubscriptionUpdates(previousOptions, updatedOptions);
+    this._resubscribeIfConnected(previousOptions, updatedOptions);
     this._handleUnsubscribeOnDisable(previousOptions, updatedOptions);
   }
 
@@ -219,14 +219,15 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
   /**
    * Disconnects this subscription from the parent WebSocket connection.
    *
-   * Immediately unsubscribes, then after {@link INITIATOR_REMOVAL_DELAY_MS} invokes
-   * the cleanup callback. Called when the hook is disabled (`enabled=false`).
+   * Schedules state cleanup and registry removal after {@link INITIATOR_REMOVAL_DELAY_MS}.
+   * Does NOT call unsubscribe() — that is the options setter's responsibility
+   * (_handleUnsubscribeOnDisable fires before disconnect() in every enabled=false scenario).
+   * Called when the hook is disabled (`enabled=false`).
    *
    * @param onRemoveFromSocket - Callback invoked after delay to remove from connection
    */
   public disconnect = (onRemoveFromSocket: () => void): void => {
     this._clearPendingTimeouts();
-    this.unsubscribe();
     this._client.connectionEvent?.({
       type: "subscription:disconnect-attempt",
       uri: this.uri,
@@ -456,7 +457,7 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
     }
   }
 
-  private _handleSubscriptionUpdates(
+  private _resubscribeIfConnected(
     previousOptions: WebsocketSubscriptionOptions<TData, TBody>,
     updatedOptions: WebsocketSubscriptionOptions<TData, TBody>
   ): void {
@@ -464,9 +465,8 @@ export class WebsocketSubscriptionApi<TData = unknown, TBody = unknown>
     const becameEnabled = !previousOptions.enabled && updatedOptions.enabled;
 
     // Only re-subscribe when already connected. When not connected, addListener → onOpen
-    // handles subscription once the socket opens, preventing a double-subscribe that
-    // occurs when the options effect queues a subscribe and addListener immediately
-    // flushes it AND calls onOpen on an already-open socket.
+    // handles subscription once the socket opens, preventing the double-subscribe that
+    // would occur if we queued a subscribe here AND onOpen subscribed on an already-open socket.
     if ((bodyChanged || becameEnabled) && this._state.state.connected) {
       this.subscribe(updatedOptions.body);
     }

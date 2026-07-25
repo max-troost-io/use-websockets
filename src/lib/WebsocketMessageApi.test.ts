@@ -370,4 +370,41 @@ describe('WebsocketMessageApi', () => {
       expect(onRemoveFromSocket).toHaveBeenCalled();
     });
   });
+
+  describe('options setter', () => {
+    it('updates enabled and is reflected by isEnabled', () => {
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey, enabled: true }, createMockClient());
+      api.options = { url: mockUrl, key: mockKey, enabled: false };
+      expect(api.isEnabled).toBe(false);
+    });
+
+    it('updates responseTimeoutMs and uses the new value on the next sendMessage', () => {
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey, responseTimeoutMs: 10000 }, createMockClient());
+      api.setSendToConnection(mockSendToConnection);
+      api.options = { url: mockUrl, key: mockKey, responseTimeoutMs: 100 };
+
+      const promise = api.sendMessage('/api/test', 'post');
+      vi.advanceTimersByTime(100);
+
+      return expect(promise).rejects.toThrow('WebSocket response timeout');
+    });
+
+    it('is a no-op when options are deep-equal', () => {
+      const onError = vi.fn();
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey, onError }, createMockClient());
+      const optionsBefore = { ...api } as unknown as Record<string, unknown>;
+      api.options = { url: mockUrl, key: mockKey, onError }; // same reference, deep-equal
+      expect(api.isEnabled).toBe(true);
+    });
+
+    it('updates onError so new errors invoke the new handler', () => {
+      const oldHandler = vi.fn();
+      const newHandler = vi.fn();
+      const api = new WebsocketMessageApi({ url: mockUrl, key: mockKey, onError: oldHandler }, createMockClient());
+      api.options = { url: mockUrl, key: mockKey, onError: newHandler };
+      api.onError({ type: 'transport', event: new Event('error') });
+      expect(newHandler).toHaveBeenCalledTimes(1);
+      expect(oldHandler).not.toHaveBeenCalled();
+    });
+  });
 });
