@@ -24,7 +24,7 @@ describe('useWebsocketMessage', () => {
   it('propagates responseTimeoutMs change to the api after re-render', async () => {
     const { rerender } = renderHook(
       ({ timeout }: { timeout: number }) =>
-        useWebsocketMessage({ url: 'wss://test', key: 'msg-timeout-key', responseTimeoutMs: timeout }),
+        useWebsocketMessage({ url: 'wss://localhost', key: 'msg-timeout-key', responseTimeoutMs: timeout }),
       { wrapper, initialProps: { timeout: 10000 } }
     );
 
@@ -43,7 +43,7 @@ describe('useWebsocketMessage', () => {
   it('propagates enabled=false to the api after re-render', () => {
     const { rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) =>
-        useWebsocketMessage({ url: 'wss://test', key: 'msg-enabled-key', enabled }),
+        useWebsocketMessage({ url: 'wss://localhost', key: 'msg-enabled-key', enabled }),
       { wrapper, initialProps: { enabled: true } }
     );
 
