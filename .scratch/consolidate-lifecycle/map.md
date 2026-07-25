@@ -16,6 +16,7 @@ A spec — with a TDD commit sequence — that consolidates subscription lifecyc
 - [Define the lifecycle boundary](./issues/01-lifecycle-boundary.md) — API owns server protocol (subscribe/unsubscribe messages); hook owns registry lifetime (add/remove from connection). `disconnect()` drops its redundant `unsubscribe()`. `_handleSubscriptionUpdates` renamed to express the `&& connected` invariant. `WebsocketMessageApi` gets a full options setter; `useWebsocketMessage` gains a `stableOptions` sync effect.
 - [Design the WebsocketSubscriptionApi lifecycle interface](./issues/02-subscription-api-design.md) — Prototype validated: `_resubscribeIfConnected` (renamed) + `_handleUnsubscribeOnDisable` + slimmed `disconnect()` handle all edge cases correctly. No double-subscribe in any scenario. `onClose` correctly sends no cleanup messages.
 - [Write the spec](./issues/04-write-spec.md) — Spec at `.scratch/consolidate-lifecycle/spec.md`: 3 file changes, 7 TDD commits, 8 edge cases. Map complete.
+- [Is passing raw options.url/enabled to useWebsocketLifecycle safe?](./issues/05-lifecycle-stable-options-scope.md) — Safe. Both are primitives; React's `Object.is` dep comparison extracts scalar values before comparing, so a new `options` object with the same url/enabled is already stable. Code-review finding was a false alarm.
 
 ## Not yet specified
 
