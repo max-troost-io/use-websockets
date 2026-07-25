@@ -8,6 +8,7 @@
  * @module WebsocketMessageApi
  */
 
+import { deepEqual } from "fast-equals";
 import { WebsocketClient } from "./WebsocketClient";
 import { INITIATOR_REMOVAL_DELAY_MS } from "./constants";
 import {
@@ -114,6 +115,18 @@ export class WebsocketMessageApi implements WebsocketListener {
   public setResponseTimeoutMs = (ms: number): void => {
     this._options.responseTimeoutMs = ms;
   };
+
+  /**
+   * Updates configuration options for this Message API.
+   *
+   * Uses deep equality to skip no-op updates. Does not trigger lifecycle
+   * side effects (disconnect/reconnect is the hook's responsibility via
+   * useWebsocketLifecycle).
+   */
+  public set options(options: WebsocketMessageOptions) {
+    if (deepEqual(this._options, options)) return;
+    this._options = { ...this._options, ...options };
+  }
 
   /**
    * Returns whether this API is waiting for a response for the given URI.

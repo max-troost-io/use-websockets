@@ -177,6 +177,7 @@ export class WebsocketConnection {
     this._listeners.set(listener.key, listener);
     this.connect();
     clearTimeout(this.closeConnectionTimeOut);
+    this.connect();
 
     if (this._socket?.readyState === WebSocket.OPEN && listener.onOpen) {
       listener.onOpen();

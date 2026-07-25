@@ -359,6 +359,12 @@ export const useWebsocketMessage = (
     createWebsocketMessageApi(client, options.key, options)
   );
 
+  const stableOptions = useDeepCompareMemoize(options);
+
+  useIsomorphicLayoutEffect(() => {
+    messageApi.options = stableOptions;
+  }, [stableOptions, messageApi]);
+
   useWebsocketLifecycle(messageApi, options.url, options.enabled);
 
   return messageApi;

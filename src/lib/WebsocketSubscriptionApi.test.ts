@@ -237,6 +237,37 @@ describe("WebsocketSubscriptionApi", () => {
       expect(subscribeSpy).toHaveBeenCalled();
     });
 
+    it("should not subscribe twice when enabled transitions false→true with a socket already open", () => {
+      // Simulates: parent mounts with enabled=false, another subscription opens the socket,
+      // parent re-renders with enabled=true. The options effect (becameEnabled) and
+      // addListener→onOpen must not both call subscribe.
+      const api = new WebsocketSubscriptionApi({
+        url: mockUrl,
+        uri: mockUri,
+        key: mockKey,
+        enabled: false,
+      }, client);
+
+      // Socket is open but api is disabled — connected is never set
+      const sendSpy = vi.fn();
+      api.setSendToConnection(sendSpy);
+
+      const subscribeSpy = vi.spyOn(api, "subscribe");
+
+      // enabled transitions false → true (options layout effect)
+      api.options = {
+        url: mockUrl,
+        uri: mockUri,
+        key: mockKey,
+        enabled: true,
+      };
+
+      // addListener calls onOpen immediately because socket is already open
+      api.onOpen();
+
+      expect(subscribeSpy).toHaveBeenCalledTimes(1);
+    });
+
     it("should trigger unsubscribe when disabled", () => {
       const api = new WebsocketSubscriptionApi({
         url: mockUrl,
@@ -469,7 +500,7 @@ describe("WebsocketSubscriptionApi", () => {
   });
 
   describe("disconnect", () => {
-    it("should unsubscribe immediately when called", () => {
+    it("does not send an unsubscribe message (options setter is responsible for that)", () => {
       const api = new WebsocketSubscriptionApi({
         url: mockUrl,
         uri: mockUri,
@@ -483,11 +514,30 @@ describe("WebsocketSubscriptionApi", () => {
 
       api.disconnect(vi.fn());
 
-      // unsubscribe should have been called synchronously
-      expect(sendSpy).toHaveBeenCalledWith({
-        method: "unsubscribe",
+      expect(sendSpy).not.toHaveBeenCalled();
+    });
+
+    it("does not send an additional unsubscribe after options setter already unsubscribed", () => {
+      const api = new WebsocketSubscriptionApi({
+        url: mockUrl,
         uri: mockUri,
-      });
+        key: mockKey,
+        enabled: true,
+      }, client);
+
+      const sendSpy = vi.fn();
+      api.setSendToConnection(sendSpy);
+      api.onOpen(); // connected=true, subscribes
+
+      // Simulate: options setter fires with enabled=false
+      api.options = { url: mockUrl, uri: mockUri, key: mockKey, enabled: false };
+      const callsAfterDisable = sendSpy.mock.calls.length;
+
+      // Simulate: hook calls disconnect()
+      api.disconnect(vi.fn());
+
+      // disconnect() must not have sent an additional message
+      expect(sendSpy.mock.calls.length).toBe(callsAfterDisable);
     });
 
     it("should call onRemoveFromSocket callback after delay", () => {
